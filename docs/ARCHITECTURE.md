@@ -114,16 +114,16 @@ pub struct Bail {
     config: Config,                                   // fee_bps, fee_account, duration limits, intents account; fixed at init
     next_event_id: EventId,
     events: LookupMap<EventId, Event>,
-    tickets: LookupMap<EventId, IterableMap<TicketKey, Ticket>>, // per-event prefix, so tally can page through
+    tickets: LookupMap<(EventId, TicketKey), Ticket>,
+    ticket_index: LookupMap<(EventId, u32), TicketKey>, // position -> ticket, so tally can page through
     owed: LookupMap<(EventId, String), u128>,         // refunds and excess by payout address; at most one per seat, prepaid
     reputation: LookupMap<String, Record>,            // shows and RSVPs per payout address
 }
 
 pub struct Event {
-    organizer, token, deposit, capacity, registered,
+    organizer, arbiter, token, deposit, capacity, registered, owed_records,
     schedule: Schedule,        // all timestamps, fixed at creation
     checkin: CheckinConfig,    // slots K, required catches R, window length
-    arbiter: AccountId,        // required, can't be the organizer
     slots: Vec<Slot>,          // opened_at, commitment, revealed, no-code flags
     status: Status,            // Active, Cancelled, Voided, Tallying, Settled, Closed
     totals: Totals,            // deposits, refunds, pool, fee, bonus, paid; for the conservation check
@@ -132,6 +132,7 @@ pub struct Event {
 
 pub struct Ticket {
     payout_to: String,         // fixed at RSVP
+    index: u32,                // position in the event's ticket index
     catches: [Option<Catch>; MAX_SLOTS], // proof and attempt number, per slot
     vouches_given: u8,
     vouched_by: u8,
@@ -160,7 +161,7 @@ pub struct Ticket {
 | `claim(event, ticket)` | anyone | Settled | Pays one ticket. |
 | `claim_owed(event, payout_to)` | anyone | any | Pays an owed amount. |
 | `close_event(event, limit)` | anyone | all paid | Frees ticket storage in pages, then returns unused storage NEAR to the organizer. |
-| Views | anyone | any | `get_event`, `get_ticket`, `standing`, `event_totals`, `get_owed`, `reliability`, `storage_cost`. |
+| Views | anyone | any | `get_config`, `get_event`, `get_ticket`, `get_tickets(event, from, limit)`, `standing`, `event_totals`, `get_owed`, `reliability`, `storage_cost`. |
 
 ### 6.3 Deposits
 

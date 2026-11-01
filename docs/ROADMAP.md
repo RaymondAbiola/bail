@@ -23,7 +23,7 @@ What is being built, in order. Each stage builds on the one before it. The desig
 
 ## 2. Check-in (in progress)
 
-- [ ] Whole event schedule fixed at creation: cancel cutoff, check-in window, code slots, reveal and dispute periods
+- [x] Whole event schedule fixed at creation: cancel cutoff, check-in window, code slots, reveal and dispute periods, and a required arbiter
 - [ ] Free cancellation before the cutoff, and organizer cancellation only before check-in
 - [ ] Live code slots that open one at a time, each committed onchain as it opens
 - [ ] Catching codes with proofs bound to each attendee's ticket key, with typos fixable inside the window
