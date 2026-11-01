@@ -1,12 +1,23 @@
+use near_sdk::json_types::Base64VecU8;
 use near_sdk::{near, PublicKey};
 
-use crate::{ticket_bytes, ticket_public_key, Bail, BailExt, EventId, TicketKey};
+use crate::{ticket_bytes, ticket_public_key, Bail, BailExt, EventId, TicketKey, MAX_SLOTS};
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ticket {
     pub payout_to: String,
     pub index: u32,
+    pub catches: [Option<Catch>; MAX_SLOTS as usize],
+    /// One bit per slot this ticket flagged as having shown no code.
+    pub flags: u8,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Catch {
+    pub attempt: u32,
+    pub proof: Base64VecU8,
 }
 
 #[near]
@@ -37,7 +48,15 @@ impl Bail {
         let index = event.registered;
         event.registered += 1;
         self.ticket_index.insert((event_id, index), ticket);
-        self.tickets.insert((event_id, ticket), Ticket { payout_to, index });
+        self.tickets.insert(
+            (event_id, ticket),
+            Ticket {
+                payout_to,
+                index,
+                catches: Default::default(),
+                flags: 0,
+            },
+        );
     }
 
     /// Swap-remove: the last ticket takes the removed one's position.

@@ -25,9 +25,9 @@ What is being built, in order. Each stage builds on the one before it. The desig
 
 - [x] Whole event schedule fixed at creation: cancel cutoff, check-in window, code slots, reveal and dispute periods, and a required arbiter
 - [x] Free cancellation before the cutoff, and organizer cancellation only before check-in
-- [ ] Live code slots that open one at a time, each committed onchain as it opens
+- [x] Live code slots that open one at a time, each committed onchain as it opens
 - [ ] Catching codes with proofs bound to each attendee's ticket key, with typos fixable inside the window
-- [ ] Flags for slots where no code was shown
+- [x] Flags for slots where no code was shown
 - [ ] Reveals that anyone can make, and a qualification rule where a missing slot can only lower the bar
 
 ## 3. Recourse and settlement

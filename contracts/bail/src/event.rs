@@ -1,4 +1,4 @@
-use near_sdk::json_types::U128;
+use near_sdk::json_types::{Base64VecU8, U128};
 use near_sdk::serde_json::json;
 use near_sdk::{env, near, require, AccountId, NearToken, Promise};
 
@@ -59,6 +59,15 @@ pub struct Schedule {
     pub dispute_ends_at_ms: u64,
 }
 
+/// A code slot the host has opened. Its window is [opened_at_ms, opened_at_ms + window_ms).
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Slot {
+    pub opened_at_ms: u64,
+    pub commitment: Base64VecU8,
+    pub flags: u32,
+}
+
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
@@ -79,6 +88,7 @@ pub struct Event {
     pub status: Status,
     pub schedule: Schedule,
     pub checkin: CheckinConfig,
+    pub slots: Vec<Slot>,
 }
 
 #[near(serializers = [json])]
@@ -168,6 +178,7 @@ impl NewEvent {
                 dispute_ends_at_ms,
             },
             checkin: c,
+            slots: Vec::new(),
         }
     }
 }

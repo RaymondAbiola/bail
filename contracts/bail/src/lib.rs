@@ -1,6 +1,7 @@
 //! Bail: RSVP with a deposit from any chain, get it back when you show up.
 
 mod cancel;
+mod checkin;
 mod deposit;
 mod event;
 mod tickets;
@@ -8,10 +9,10 @@ mod tickets;
 mod tests;
 
 pub use event::{
-    CheckinConfig, Config, Event, NewEvent, Schedule, Status, MAX_CAPACITY, MAX_FEE_BPS,
+    CheckinConfig, Config, Event, NewEvent, Schedule, Slot, Status, MAX_CAPACITY, MAX_FEE_BPS,
     MAX_SLOTS, MIN_WINDOW_FLOOR_MS, STORAGE_PER_EVENT, STORAGE_PER_SEAT,
 };
-pub use tickets::Ticket;
+pub use tickets::{Catch, Ticket};
 
 use near_sdk::serde_json::{json, Value};
 use near_sdk::store::LookupMap;
@@ -90,6 +91,10 @@ fn verify_ticket(ticket: &TicketKey, message: &str, signature: &[u8]) -> bool {
         return false;
     };
     env::ed25519_verify(signature, message.as_bytes(), ticket)
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn emit(event: &str, data: Value) {
