@@ -1,0 +1,7 @@
+{
+  "theme": "neutral",
+  "fontFamily": "Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  "htmlLabels": false,
+  "flowchart": { "htmlLabels": false },
+  "sequence": { "useMaxWidth": false, "mirrorActors": false, "actorMargin": 30, "width": 120 }
+}

@@ -1,0 +1,16 @@
+sequenceDiagram
+  actor A as Attendee
+  participant W as Web app
+  participant O as 1Click
+  participant S as NEAR Intents
+  participant U as USDC (NEAR)
+  participant B as Bail
+  A->>W: RSVP, paying in SOL
+  W->>O: quote: exactly 1 USDC to Bail<br/>note in customRecipientMsg<br/>refunds to A on Solana
+  O-->>W: deposit address
+  A->>O: send SOL from own wallet
+  O->>S: swap and deliver
+  S->>U: ft_transfer_call<br/>1 USDC with the note
+  U->>B: ft_on_transfer(note)
+  W->>O: poll status until SUCCESS
+  W-->>A: You're in

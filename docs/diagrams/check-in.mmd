@@ -1,0 +1,16 @@
+sequenceDiagram
+  participant H as Host console
+  participant B as Bail
+  actor A as Attendee (in the call)
+  participant W as Web app
+  participant R as Relayer
+  H->>B: open_slot(2, commitment to the code)
+  H-->>A: shows "tiger maple seven ocean lamp" in the call
+  A->>W: types the code
+  W->>W: proof = hash of code and ticket key, sign
+  W->>R: catch
+  R->>B: catch(event, 2, attempt, pubkey, proof, sig)
+  Note over B: inside the 120 s window, a higher attempt can fix a typo
+  Note over H,B: after the window
+  H->>B: reveal(2, code)
+  Note over B: anyone who knows the code can reveal it

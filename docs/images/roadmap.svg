@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 300" width="1120" height="300" font-family="Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>Bail roadmap</title>
+  <desc>Eight stages in two rows. Build the contract: Foundation (done), Check-in (in progress), Recourse and settlement, Proof. Ship it: Testnet launch, Apps, Any chain, First real event.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect width="1120" height="300" fill="#ffffff"/>
+
+  <!-- Legend -->
+  <rect x="770" y="16" width="14" height="14" rx="3" fill="#d1fae5" stroke="#059669"/>
+  <text x="790" y="28" font-size="13" fill="#334155">Done</text>
+  <rect x="846" y="16" width="14" height="14" rx="3" fill="#fef3c7" stroke="#d97706"/>
+  <text x="866" y="28" font-size="13" fill="#334155">In progress</text>
+  <rect x="960" y="16" width="14" height="14" rx="3" fill="#ffffff" stroke="#94a3b8"/>
+  <text x="980" y="28" font-size="13" fill="#334155">Planned</text>
+
+  <!-- Row 1 -->
+  <text x="40" y="44" font-size="12" font-weight="600" letter-spacing="1.5" fill="#64748b">BUILD THE CONTRACT</text>
+
+  <rect x="40" y="58" width="230" height="66" rx="10" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+  <text x="56" y="80" font-size="11" font-weight="600" letter-spacing="1.2" fill="#047857">STAGE 1</text>
+  <text x="254" y="80" text-anchor="end" font-size="11" font-weight="600" letter-spacing="1.2" fill="#047857">DONE</text>
+  <text x="56" y="106" font-size="17" font-weight="700" fill="#064e3b">Foundation</text>
+
+  <rect x="310" y="58" width="230" height="66" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+  <text x="326" y="80" font-size="11" font-weight="600" letter-spacing="1.2" fill="#b45309">STAGE 2</text>
+  <text x="524" y="80" text-anchor="end" font-size="11" font-weight="600" letter-spacing="1.2" fill="#b45309">IN PROGRESS</text>
+  <text x="326" y="106" font-size="17" font-weight="700" fill="#78350f">Check-in</text>
+
+  <rect x="580" y="58" width="230" height="66" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="596" y="80" font-size="11" font-weight="600" letter-spacing="1.2" fill="#64748b">STAGE 3</text>
+  <text x="596" y="106" font-size="17" font-weight="700" fill="#0f172a">Recourse and settlement</text>
+
+  <rect x="850" y="58" width="230" height="66" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="866" y="80" font-size="11" font-weight="600" letter-spacing="1.2" fill="#64748b">STAGE 4</text>
+  <text x="866" y="106" font-size="17" font-weight="700" fill="#0f172a">Proof</text>
+
+  <line x1="272" y1="91" x2="306" y2="91" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="542" y1="91" x2="576" y2="91" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="812" y1="91" x2="846" y2="91" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Turn from row 1 to row 2 -->
+  <polyline points="965,126 965,154 155,154 155,198" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Row 2 -->
+  <text x="40" y="186" font-size="12" font-weight="600" letter-spacing="1.5" fill="#64748b">SHIP IT</text>
+
+  <rect x="40" y="202" width="230" height="66" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="56" y="224" font-size="11" font-weight="600" letter-spacing="1.2" fill="#64748b">STAGE 5</text>
+  <text x="56" y="250" font-size="17" font-weight="700" fill="#0f172a">Testnet launch</text>
+
+  <rect x="310" y="202" width="230" height="66" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="326" y="224" font-size="11" font-weight="600" letter-spacing="1.2" fill="#64748b">STAGE 6</text>
+  <text x="326" y="250" font-size="17" font-weight="700" fill="#0f172a">Apps</text>
+
+  <rect x="580" y="202" width="230" height="66" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="596" y="224" font-size="11" font-weight="600" letter-spacing="1.2" fill="#64748b">STAGE 7</text>
+  <text x="596" y="250" font-size="17" font-weight="700" fill="#0f172a">Any chain</text>
+
+  <rect x="850" y="202" width="230" height="66" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="866" y="224" font-size="11" font-weight="600" letter-spacing="1.2" fill="#64748b">STAGE 8</text>
+  <text x="866" y="250" font-size="17" font-weight="700" fill="#0f172a">First real event</text>
+
+  <line x1="272" y1="235" x2="306" y2="235" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="542" y1="235" x2="576" y2="235" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="812" y1="235" x2="846" y2="235" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+</svg>

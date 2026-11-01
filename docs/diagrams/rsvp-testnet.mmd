@@ -1,0 +1,16 @@
+sequenceDiagram
+  actor A as Attendee
+  participant W as Web app
+  participant R as Relayer
+  participant U as Test USDC
+  participant B as Bail
+  A->>W: RSVP
+  W->>W: create ticket key (and implicit account key)
+  W->>R: faucet(account)
+  R->>U: storage_deposit + ft_transfer 1 USDC
+  W->>W: sign delegate action: ft_transfer_call(Bail, 1 USDC, note)
+  W->>R: meta(signed delegate)
+  R->>U: relay (pays gas and 1 yoctoNEAR)
+  U->>B: ft_on_transfer(note)
+  B-->>W: rsvp event
+  W-->>A: You're in, seat 12
