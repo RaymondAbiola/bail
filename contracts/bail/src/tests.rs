@@ -1,5 +1,6 @@
+use ed25519_dalek::{Signer, SigningKey};
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
-use near_sdk::json_types::U128;
+use near_sdk::json_types::{Base64VecU8, U128};
 use near_sdk::serde_json::json;
 use near_sdk::test_utils::VMContextBuilder;
 use near_sdk::{env, testing_env, AccountId, CurveType, NearToken, PromiseOrValue, PublicKey};
@@ -13,6 +14,7 @@ const NOW: u64 = 1_000_000;
 const MINUTE: u64 = 60_000;
 const RSVP_CLOSES: u64 = NOW + MINUTE;
 const USDC: &str = "usdc.near";
+const CONTRACT: &str = "bail.near";
 
 fn acc(id: &str) -> AccountId {
     id.parse().unwrap()
@@ -20,6 +22,7 @@ fn acc(id: &str) -> AccountId {
 
 fn ctx(predecessor: &str, now_ms: u64, attached: NearToken) {
     testing_env!(VMContextBuilder::new()
+        .current_account_id(acc(CONTRACT))
         .predecessor_account_id(acc(predecessor))
         .block_timestamp(now_ms * NS_PER_MS)
         .attached_deposit(attached)
@@ -81,8 +84,36 @@ fn try_event(change: impl FnOnce(&mut NewEvent)) {
     create(&mut c, event);
 }
 
+fn signer(seed: u8) -> SigningKey {
+    SigningKey::from_bytes(&[seed; 32])
+}
+
 fn ticket(seed: u8) -> PublicKey {
-    PublicKey::from_parts(CurveType::ED25519, vec![seed; 32]).unwrap()
+    let key = signer(seed).verifying_key().to_bytes().to_vec();
+    PublicKey::from_parts(CurveType::ED25519, key).unwrap()
+}
+
+fn sign(seed: u8, message: &str) -> Base64VecU8 {
+    Base64VecU8(signer(seed).sign(message.as_bytes()).to_bytes().to_vec())
+}
+
+// Spelled out rather than built by the contract's helper, so the format is pinned.
+fn cancel_message(event_id: EventId) -> String {
+    format!("bail/v1/cancel/{CONTRACT}/{event_id}")
+}
+
+fn cancel(c: &mut Bail, event_id: EventId, seed: u8, at_ms: u64, signature: Base64VecU8) {
+    ctx("relayer.near", at_ms, NearToken::from_near(0));
+    c.cancel_rsvp(event_id, ticket(seed), signature);
+}
+
+fn rsvp(c: &mut Bail, event_id: EventId, seed: u8, payout_to: &str) {
+    assert_eq!(send(c, USDC, NOW, DEPOSIT, msg(event_id, seed, payout_to)), 0);
+}
+
+fn cancel_event_as(c: &mut Bail, event_id: EventId, who: &str, at_ms: u64, attached: NearToken) {
+    ctx(who, at_ms, attached);
+    c.cancel_event(event_id);
 }
 
 fn msg(event_id: EventId, seed: u8, payout_to: &str) -> String {
@@ -382,6 +413,166 @@ fn overpayment_past_the_owed_cap_returns_the_excess() {
     assert_eq!(send(&mut c, USDC, NOW, DEPOSIT + 250, msg(id, 3, "near:c.near")), 250);
     assert_eq!(c.get_event(id).unwrap().registered, 1);
     assert_eq!(c.get_owed(id, "near:c.near".into()).0, 0);
+}
+
+// Cancellation
+
+#[test]
+fn cancelling_frees_the_seat_and_owes_the_deposit() {
+    let (mut c, id) = setup(10);
+    rsvp(&mut c, id, 1, "near:a.near");
+    cancel(&mut c, id, 1, NOW, sign(1, &cancel_message(id)));
+    assert_eq!(c.get_event(id).unwrap().registered, 0);
+    assert!(c.get_ticket(id, ticket(1)).is_none());
+    assert_eq!(c.get_owed(id, "near:a.near".into()).0, DEPOSIT);
+}
+
+#[test]
+fn cancelling_keeps_the_ticket_list_compact() {
+    let (mut c, id) = setup(10);
+    for seed in 1..=3 {
+        rsvp(&mut c, id, seed, &format!("near:a{seed}.near"));
+    }
+    cancel(&mut c, id, 1, NOW, sign(1, &cancel_message(id)));
+    let keys: Vec<PublicKey> = c.get_tickets(id, 0, 10).into_iter().map(|(k, _)| k).collect();
+    assert_eq!(keys, vec![ticket(3), ticket(2)]);
+    assert_eq!(c.get_ticket(id, ticket(3)).unwrap().index, 0);
+    assert_eq!(c.get_ticket(id, ticket(2)).unwrap().index, 1);
+}
+
+#[test]
+fn a_stolen_ticket_cannot_redirect_the_refund() {
+    let (mut c, id) = setup(10);
+    rsvp(&mut c, id, 1, "near:owner.near");
+    ctx("thief.near", NOW, NearToken::from_near(0));
+    c.cancel_rsvp(id, ticket(1), sign(1, &cancel_message(id)));
+    assert_eq!(c.get_owed(id, "near:owner.near".into()).0, DEPOSIT);
+    assert_eq!(c.get_owed(id, "near:thief.near".into()).0, 0);
+}
+
+#[test]
+#[should_panic(expected = "invalid signature")]
+fn cancel_rejects_another_keys_signature() {
+    let (mut c, id) = setup(10);
+    rsvp(&mut c, id, 1, "near:a.near");
+    cancel(&mut c, id, 1, NOW, sign(2, &cancel_message(id)));
+}
+
+#[test]
+#[should_panic(expected = "invalid signature")]
+fn cancel_rejects_a_signature_for_another_event() {
+    let (mut c, id) = setup(10);
+    rsvp(&mut c, id, 1, "near:a.near");
+    cancel(&mut c, id, 1, NOW, sign(1, &cancel_message(id + 1)));
+}
+
+#[test]
+#[should_panic(expected = "invalid signature")]
+fn cancel_rejects_a_signature_for_another_contract() {
+    let (mut c, id) = setup(10);
+    rsvp(&mut c, id, 1, "near:a.near");
+    cancel(&mut c, id, 1, NOW, sign(1, &format!("bail/v1/cancel/other.near/{id}")));
+}
+
+#[test]
+#[should_panic(expected = "invalid signature")]
+fn cancel_rejects_a_malformed_signature() {
+    let (mut c, id) = setup(10);
+    rsvp(&mut c, id, 1, "near:a.near");
+    cancel(&mut c, id, 1, NOW, Base64VecU8(vec![0; 10]));
+}
+
+#[test]
+#[should_panic(expected = "cancel cutoff has passed")]
+fn cancel_after_the_cutoff_fails() {
+    let (mut c, id) = setup(10);
+    rsvp(&mut c, id, 1, "near:a.near");
+    let cutoff = c.get_event(id).unwrap().schedule.cancel_cutoff_ms;
+    cancel(&mut c, id, 1, cutoff, sign(1, &cancel_message(id)));
+}
+
+#[test]
+#[should_panic(expected = "no such ticket")]
+fn cancelling_twice_fails() {
+    let (mut c, id) = setup(10);
+    rsvp(&mut c, id, 1, "near:a.near");
+    cancel(&mut c, id, 1, NOW, sign(1, &cancel_message(id)));
+    cancel(&mut c, id, 1, NOW, sign(1, &cancel_message(id)));
+}
+
+#[test]
+fn a_cancelled_ticket_can_rsvp_again() {
+    let (mut c, id) = setup(10);
+    rsvp(&mut c, id, 1, "near:a.near");
+    cancel(&mut c, id, 1, NOW, sign(1, &cancel_message(id)));
+    rsvp(&mut c, id, 1, "near:a.near");
+    assert_eq!(c.get_event(id).unwrap().registered, 1);
+    assert_eq!(c.get_owed(id, "near:a.near".into()).0, DEPOSIT);
+}
+
+#[test]
+fn a_cancellation_refund_ignores_the_owed_cap() {
+    let (mut c, id) = setup(1);
+    rsvp(&mut c, id, 1, "near:a.near");
+    send(&mut c, USDC, NOW, DEPOSIT, msg(id, 2, "near:b.near"));
+    assert_eq!(c.get_event(id).unwrap().owed_records, 1);
+    cancel(&mut c, id, 1, NOW, sign(1, &cancel_message(id)));
+    assert_eq!(c.get_owed(id, "near:a.near".into()).0, DEPOSIT);
+}
+
+#[test]
+fn organizer_can_cancel_before_checkin() {
+    let (mut c, id) = setup(10);
+    cancel_event_as(&mut c, id, "organizer.near", NOW, NearToken::from_yoctonear(1));
+    assert_eq!(c.get_event(id).unwrap().status, Status::Cancelled);
+}
+
+#[test]
+#[should_panic(expected = "exactly 1 yoctoNEAR")]
+fn cancelling_an_event_needs_a_full_access_key() {
+    let (mut c, id) = setup(10);
+    cancel_event_as(&mut c, id, "organizer.near", NOW, NearToken::from_near(0));
+}
+
+#[test]
+#[should_panic(expected = "only the organizer can cancel")]
+fn only_the_organizer_can_cancel() {
+    let (mut c, id) = setup(10);
+    cancel_event_as(&mut c, id, "arbiter.near", NOW, NearToken::from_yoctonear(1));
+}
+
+#[test]
+#[should_panic(expected = "check-in has started")]
+fn organizer_cannot_cancel_once_checkin_opens() {
+    let (mut c, id) = setup(10);
+    let opens = c.get_event(id).unwrap().schedule.checkin_opens_at_ms;
+    cancel_event_as(&mut c, id, "organizer.near", opens, NearToken::from_yoctonear(1));
+}
+
+#[test]
+#[should_panic(expected = "event is not active")]
+fn an_event_cannot_be_cancelled_twice() {
+    let (mut c, id) = setup(10);
+    cancel_event_as(&mut c, id, "organizer.near", NOW, NearToken::from_yoctonear(1));
+    cancel_event_as(&mut c, id, "organizer.near", NOW, NearToken::from_yoctonear(1));
+}
+
+#[test]
+fn deposits_into_a_cancelled_event_are_owed() {
+    let (mut c, id) = setup(10);
+    cancel_event_as(&mut c, id, "organizer.near", NOW, NearToken::from_yoctonear(1));
+    assert_eq!(send(&mut c, USDC, NOW, DEPOSIT, msg(id, 1, "near:a.near")), 0);
+    assert_eq!(c.get_event(id).unwrap().registered, 0);
+    assert_eq!(c.get_owed(id, "near:a.near".into()).0, DEPOSIT);
+}
+
+#[test]
+#[should_panic(expected = "event is not active")]
+fn tickets_in_a_cancelled_event_cannot_cancel_separately() {
+    let (mut c, id) = setup(10);
+    rsvp(&mut c, id, 1, "near:a.near");
+    cancel_event_as(&mut c, id, "organizer.near", NOW, NearToken::from_yoctonear(1));
+    cancel(&mut c, id, 1, NOW, sign(1, &cancel_message(id)));
 }
 
 // Storage

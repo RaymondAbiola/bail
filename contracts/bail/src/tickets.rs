@@ -39,4 +39,18 @@ impl Bail {
         self.ticket_index.insert((event_id, index), ticket);
         self.tickets.insert((event_id, ticket), Ticket { payout_to, index });
     }
+
+    /// Swap-remove: the last ticket takes the removed one's position.
+    pub(crate) fn remove_ticket(&mut self, event_id: EventId, ticket: TicketKey) -> Ticket {
+        let removed = self.tickets.remove(&(event_id, ticket)).unwrap();
+        let event = self.events.get_mut(&event_id).unwrap();
+        event.registered -= 1;
+        let last = event.registered;
+        let last_key = self.ticket_index.remove(&(event_id, last)).unwrap();
+        if removed.index != last {
+            self.ticket_index.insert((event_id, removed.index), last_key);
+            self.tickets.get_mut(&(event_id, last_key)).unwrap().index = removed.index;
+        }
+        removed
+    }
 }

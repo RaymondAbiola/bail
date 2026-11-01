@@ -60,6 +60,13 @@ pub struct Schedule {
 }
 
 #[near(serializers = [borsh, json])]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status {
+    Active,
+    Cancelled,
+}
+
+#[near(serializers = [borsh, json])]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Event {
     pub organizer: AccountId,
@@ -69,6 +76,7 @@ pub struct Event {
     pub capacity: u32,
     pub registered: u32,
     pub owed_records: u32,
+    pub status: Status,
     pub schedule: Schedule,
     pub checkin: CheckinConfig,
 }
@@ -150,6 +158,7 @@ impl NewEvent {
             capacity: self.capacity,
             registered: 0,
             owed_records: 0,
+            status: Status::Active,
             schedule: Schedule {
                 cancel_cutoff_ms: self.cancel_cutoff_ms,
                 rsvp_closes_at_ms: self.rsvp_closes_at_ms,
