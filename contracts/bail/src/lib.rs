@@ -4,6 +4,7 @@ mod cancel;
 mod checkin;
 mod deposit;
 mod event;
+mod payout;
 mod recourse;
 mod reveal;
 mod settle;
@@ -27,7 +28,8 @@ use near_sdk::{env, near, BorshStorageKey, CurveType, PanicOnDefault, PublicKey}
 pub type EventId = u64;
 type TicketKey = [u8; 32];
 
-pub const MAX_PAYOUT_LEN: usize = 128;
+/// `intents:` plus a 64-character account ID, the longest payout address Bail accepts.
+pub const MAX_PAYOUT_LEN: usize = 72;
 
 #[near(serializers = [borsh])]
 #[derive(BorshStorageKey)]

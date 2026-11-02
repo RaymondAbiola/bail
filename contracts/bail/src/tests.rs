@@ -3,10 +3,17 @@ use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_sdk::json_types::{Base64VecU8, U128};
 use near_sdk::serde_json::json;
 use near_sdk::test_utils::VMContextBuilder;
-use near_sdk::{env, testing_env, AccountId, CurveType, NearToken, PromiseOrValue, PublicKey};
+use near_sdk::mock::MockAction;
+use near_sdk::serde_json::Value;
+use near_sdk::test_utils::get_created_receipts;
+use near_sdk::{
+    env, testing_env, AccountId, CurveType, NearToken, PromiseOrValue, PromiseResult, PublicKey,
+    RuntimeFeesConfig,
+};
 
 use crate::event::seat_storage_cost;
 use crate::reveal::{catch_proof, code_commitment, normalize_code, qualifies, SlotState};
+use crate::payout::{OWED_RECORD_BYTES, REPUTATION_RECORD_BYTES};
 use crate::settle::payout_amount;
 use crate::*;
 
@@ -1421,18 +1428,347 @@ fn payouts_follow_outcomes() {
     assert_eq!(payout_amount(Outcome::Forfeited, &all, 100), 100);
 }
 
-// Storage
+// Payouts
 
-/// Bytes each seat can still grow by: a filled `vouched_for` key (33 bytes over None),
-/// and the paid flag a later stage adds.
-const RESERVED_PER_SEAT: u64 = 33 + 1;
-/// Bytes each event will still need: the measured storage counter a later stage adds.
-const RESERVED_PER_EVENT: u64 = 8;
+fn with_intents() -> Bail {
+    ctx("deployer.near", NOW, NearToken::from_near(0));
+    Bail::new(Config {
+        intents_account: Some(acc("intents.near")),
+        ..config()
+    })
+}
+
+/// Token calls the last contract call scheduled: (token, method, args, attached deposit).
+fn token_calls() -> Vec<(AccountId, String, Value, NearToken)> {
+    get_created_receipts()
+        .into_iter()
+        .flat_map(|r| {
+            let receiver = r.receiver_id.clone();
+            r.actions.into_iter().filter_map(move |a| match a {
+                MockAction::FunctionCallWeight { method_name, args, attached_deposit, .. } => {
+                    let method = String::from_utf8(method_name).unwrap();
+                    let args = near_sdk::serde_json::from_slice(&args).unwrap_or(Value::Null);
+                    method.starts_with("ft_").then(|| (receiver.clone(), method, args, attached_deposit))
+                }
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+fn near_transfers() -> Vec<(AccountId, NearToken)> {
+    get_created_receipts()
+        .into_iter()
+        .flat_map(|r| {
+            let receiver = r.receiver_id.clone();
+            r.actions.into_iter().filter_map(move |a| match a {
+                MockAction::Transfer { deposit, .. } => Some((receiver.clone(), deposit)),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+fn transfer_to(calls: &[(AccountId, String, Value, NearToken)], receiver: &str) -> Vec<u128> {
+    calls
+        .iter()
+        .filter(|(_, m, args, _)| m == "ft_transfer" && args["receiver_id"] == receiver)
+        .map(|(_, _, args, _)| args["amount"].as_str().unwrap().parse().unwrap())
+        .collect()
+}
+
+fn pay_all(c: &mut Bail, event_id: EventId, at_ms: u64, limit: u32) -> Vec<(AccountId, String, Value, NearToken)> {
+    let mut calls = Vec::new();
+    loop {
+        ctx("keeper.near", at_ms, NearToken::from_near(0));
+        let done = c.payout(event_id, limit);
+        calls.extend(token_calls());
+        if done {
+            return calls;
+        }
+    }
+}
+
+fn settled_example() -> (Bail, EventId, u64) {
+    let (mut c, id, ends) = worked_example(None);
+    tally_all(&mut c, id, ends, 1_000);
+    (c, id, ends)
+}
+
+/// Calls the payout callback as the token's answer would arrive.
+fn answer(c: &mut Bail, event_id: EventId, seed: Option<u8>, payout_to: &str, amount: u128, is_call: bool, result: PromiseResult) {
+    testing_env!(
+        VMContextBuilder::new()
+            .current_account_id(acc(CONTRACT))
+            .predecessor_account_id(acc(CONTRACT))
+            .block_timestamp(NOW * NS_PER_MS)
+            .build(),
+        near_sdk::test_vm_config(),
+        RuntimeFeesConfig::test(),
+        Default::default(),
+        vec![result],
+    );
+    c.on_transfer(event_id, seed.map(ticket), payout_to.to_string(), U128(amount), is_call);
+}
 
 #[test]
-fn prepaid_storage_covers_a_full_event() {
-    let capacity = 25;
-    let mut c = contract();
+fn unusable_payout_addresses_bounce() {
+    let (mut c, id) = setup(10);
+    for address in ["base:0xabc", "near:", "near:Not Valid", "intents:t1.near", "t1.near"] {
+        assert_eq!(send(&mut c, USDC, NOW, DEPOSIT, msg(id, 1, address)), DEPOSIT, "{address}");
+    }
+    assert_eq!(c.get_event(id).unwrap().registered, 0);
+}
+
+#[test]
+fn intents_addresses_work_where_enabled() {
+    let mut c = with_intents();
+    let id = create(&mut c, new_event(10));
+    rsvp(&mut c, id, 1, "intents:0x1234567890abcdef1234567890abcdef12345678");
+    assert_eq!(c.get_event(id).unwrap().registered, 1);
+}
+
+#[test]
+fn an_event_takes_two_rsvps_per_seat() {
+    let (mut c, id) = setup(1);
+    rsvp(&mut c, id, 1, "near:a.near");
+    cancel(&mut c, id, 1, NOW, sign(1, &cancel_message(id)));
+    rsvp(&mut c, id, 2, "near:b.near");
+    cancel(&mut c, id, 2, NOW, sign(2, &cancel_message(id)));
+    assert_eq!(send(&mut c, USDC, NOW, DEPOSIT, msg(id, 3, "near:c.near")), 0);
+    let e = c.get_event(id).unwrap();
+    assert_eq!((e.registered, e.tickets_created), (0, 2));
+    assert_eq!(c.get_owed(id, "near:c.near".into()).0, DEPOSIT);
+}
+
+#[test]
+fn payouts_send_every_share() {
+    let (mut c, id, ends) = settled_example();
+    let calls = pay_all(&mut c, id, ends, 1_000);
+    assert_eq!(calls.len(), 16);
+    assert!(calls.iter().all(|(token, method, _, deposit)| {
+        token.as_str() == USDC && method == "ft_transfer" && *deposit == NearToken::from_yoctonear(1)
+    }));
+    assert_eq!(transfer_to(&calls, "t1.near"), vec![1_266_666]);
+    assert_eq!(transfer_to(&calls, "t16.near"), vec![DEPOSIT]);
+    assert!(transfer_to(&calls, "t20.near").is_empty());
+    assert!((1..=20).all(|seed| c.get_ticket(id, ticket(seed)).unwrap().paid));
+}
+
+#[test]
+fn payouts_page_through_tickets() {
+    let (mut c, id, ends) = settled_example();
+    let calls = pay_all(&mut c, id, ends, 7);
+    assert_eq!(calls.len(), 16);
+}
+
+#[test]
+#[should_panic(expected = "the tally is not finished")]
+fn payouts_wait_for_the_tally() {
+    let (mut c, id, ends) = worked_example(None);
+    pay_all(&mut c, id, ends, 1_000);
+}
+
+#[test]
+#[should_panic(expected = "already paid")]
+fn nothing_is_paid_twice() {
+    let (mut c, id, ends) = settled_example();
+    pay_all(&mut c, id, ends, 1_000);
+    ctx("anyone.near", ends, NearToken::from_near(0));
+    c.claim(id, ticket(1));
+}
+
+#[test]
+fn a_ticket_can_be_claimed_on_its_own() {
+    let (mut c, id, ends) = settled_example();
+    ctx("anyone.near", ends, NearToken::from_near(0));
+    c.claim(id, ticket(1));
+    assert_eq!(transfer_to(&token_calls(), "t1.near"), vec![1_266_666]);
+    assert!(c.get_ticket(id, ticket(1)).unwrap().paid);
+    assert!(!c.get_ticket(id, ticket(2)).unwrap().paid);
+}
+
+#[test]
+fn a_failed_transfer_can_be_retried() {
+    let (mut c, id, ends) = settled_example();
+    ctx("anyone.near", ends, NearToken::from_near(0));
+    c.claim(id, ticket(1));
+    answer(&mut c, id, Some(1), "near:t1.near", 1_266_666, false, PromiseResult::Failed);
+    assert!(!c.get_ticket(id, ticket(1)).unwrap().paid);
+    assert_eq!(c.get_owed(id, "near:t1.near".into()).0, 0);
+    ctx("anyone.near", ends, NearToken::from_near(0));
+    c.claim(id, ticket(1));
+    assert_eq!(transfer_to(&token_calls(), "t1.near"), vec![1_266_666]);
+}
+
+#[test]
+fn a_successful_transfer_stays_paid() {
+    let (mut c, id, ends) = settled_example();
+    ctx("anyone.near", ends, NearToken::from_near(0));
+    c.claim(id, ticket(1));
+    answer(&mut c, id, Some(1), "near:t1.near", 1_266_666, false, PromiseResult::Successful(vec![]));
+    assert!(c.get_ticket(id, ticket(1)).unwrap().paid);
+    assert_eq!(c.get_owed(id, "near:t1.near".into()).0, 0);
+}
+
+#[test]
+fn intents_payouts_use_transfer_call() {
+    let mut c = with_intents();
+    let id = create(&mut c, new_event(10));
+    rsvp(&mut c, id, 1, "intents:0x1234567890abcdef1234567890abcdef12345678");
+    cancel_event_as(&mut c, id, "organizer.near", NOW, NearToken::from_yoctonear(1));
+    tally_all(&mut c, id, NOW, 1_000);
+    let calls = pay_all(&mut c, id, NOW, 1_000);
+    assert_eq!(calls.len(), 1);
+    let (token, method, args, _) = &calls[0];
+    assert_eq!((token.as_str(), method.as_str()), (USDC, "ft_transfer_call"));
+    assert_eq!(args["receiver_id"], "intents.near");
+    assert_eq!(args["msg"], "0x1234567890abcdef1234567890abcdef12345678");
+    assert_eq!(args["amount"], DEPOSIT.to_string());
+}
+
+#[test]
+fn what_intents_returns_is_owed() {
+    let (mut c, id, _) = settled_example();
+    let used = PromiseResult::Successful(b"\"400000\"".to_vec());
+    answer(&mut c, id, Some(16), "near:t16.near", DEPOSIT, true, used);
+    assert_eq!(c.get_owed(id, "near:t16.near".into()).0, 600_000);
+}
+
+#[test]
+fn an_unreadable_answer_counts_as_paid() {
+    let (mut c, id, ends) = settled_example();
+    ctx("anyone.near", ends, NearToken::from_near(0));
+    c.claim(id, ticket(16));
+    answer(&mut c, id, Some(16), "near:t16.near", DEPOSIT, true, PromiseResult::Successful(b"garbage".to_vec()));
+    assert!(c.get_ticket(id, ticket(16)).unwrap().paid);
+    assert_eq!(c.get_owed(id, "near:t16.near".into()).0, 0);
+}
+
+#[test]
+fn owed_refunds_can_be_claimed() {
+    let (mut c, id) = setup(10);
+    send(&mut c, USDC, RSVP_CLOSES, DEPOSIT, msg(id, 1, "near:late.near"));
+    ctx("anyone.near", RSVP_CLOSES, NearToken::from_near(0));
+    c.claim_owed(id, "near:late.near".into());
+    assert_eq!(transfer_to(&token_calls(), "late.near"), vec![DEPOSIT]);
+    assert_eq!(c.get_owed(id, "near:late.near".into()).0, 0);
+}
+
+#[test]
+fn a_failed_owed_claim_is_restored() {
+    let (mut c, id) = setup(10);
+    send(&mut c, USDC, RSVP_CLOSES, DEPOSIT, msg(id, 1, "near:late.near"));
+    ctx("anyone.near", RSVP_CLOSES, NearToken::from_near(0));
+    c.claim_owed(id, "near:late.near".into());
+    answer(&mut c, id, None, "near:late.near", DEPOSIT, false, PromiseResult::Failed);
+    assert_eq!(c.get_owed(id, "near:late.near".into()).0, DEPOSIT);
+}
+
+#[test]
+#[should_panic(expected = "nothing owed")]
+fn claiming_nothing_fails() {
+    let (mut c, id) = setup(10);
+    ctx("anyone.near", NOW, NearToken::from_near(0));
+    c.claim_owed(id, "near:nobody.near".into());
+}
+
+// Closing
+
+fn close_all(c: &mut Bail, event_id: EventId, at_ms: u64, limit: u32) -> Vec<(AccountId, NearToken)> {
+    loop {
+        ctx("anyone.near", at_ms, NearToken::from_near(0));
+        if c.close_event(event_id, limit) {
+            return near_transfers();
+        }
+    }
+}
+
+#[test]
+#[should_panic(expected = "payouts are not finished")]
+fn closing_waits_for_payouts() {
+    let (mut c, id, ends) = settled_example();
+    close_all(&mut c, id, ends, 1_000);
+}
+
+#[test]
+fn closing_frees_tickets_and_refunds_unused_storage() {
+    let (mut c, id, ends) = settled_example();
+    pay_all(&mut c, id, ends, 1_000);
+    let refunds = close_all(&mut c, id, ends, 1_000);
+    let e = c.get_event(id).unwrap();
+    assert!(e.closed);
+    assert!(c.get_ticket(id, ticket(1)).is_none());
+
+    // 20 seats prepaid, minus the event's own budget and 20 reliability records it created.
+    let keep = STORAGE_PER_EVENT.saturating_add(
+        env::storage_byte_cost().saturating_mul(20 * REPUTATION_RECORD_BYTES),
+    );
+    let expected = seat_storage_cost(20).saturating_sub(keep);
+    assert_eq!(refunds, vec![(acc("organizer.near"), expected)]);
+    assert_eq!(e.owed_total, 0);
+}
+
+#[test]
+fn closing_works_in_pages() {
+    let (mut c, id, ends) = settled_example();
+    pay_all(&mut c, id, ends, 1_000);
+    for _ in 0..2 {
+        ctx("anyone.near", ends, NearToken::from_near(0));
+        assert!(!c.close_event(id, 8));
+    }
+    ctx("anyone.near", ends, NearToken::from_near(0));
+    assert!(c.close_event(id, 8));
+}
+
+#[test]
+fn closing_moves_failed_payouts_to_owed() {
+    let (mut c, id, ends) = settled_example();
+    pay_all(&mut c, id, ends, 1_000);
+    answer(&mut c, id, Some(1), "near:t1.near", 1_266_666, false, PromiseResult::Failed);
+    close_all(&mut c, id, ends, 1_000);
+    assert_eq!(c.get_owed(id, "near:t1.near".into()).0, 1_266_666);
+    assert_eq!(c.get_event(id).unwrap().owed_total, 1);
+}
+
+#[test]
+fn a_payout_failing_after_close_is_owed() {
+    let (mut c, id, ends) = settled_example();
+    pay_all(&mut c, id, ends, 1_000);
+    close_all(&mut c, id, ends, 1_000);
+    answer(&mut c, id, Some(1), "near:t1.near", 1_266_666, false, PromiseResult::Failed);
+    assert_eq!(c.get_owed(id, "near:t1.near".into()).0, 1_266_666);
+}
+
+#[test]
+#[should_panic(expected = "already closed")]
+fn an_event_closes_once() {
+    let (mut c, id, ends) = settled_example();
+    pay_all(&mut c, id, ends, 1_000);
+    close_all(&mut c, id, ends, 1_000);
+    close_all(&mut c, id, ends, 1_000);
+}
+
+#[test]
+fn record_bounds_cover_the_longest_addresses() {
+    assert_eq!(OWED_RECORD_BYTES, 1 + 8 + 4 + 72 + 16 + 40);
+    assert_eq!(REPUTATION_RECORD_BYTES, 1 + 4 + 72 + 16 + 40);
+}
+
+// Storage
+
+/// A filled `vouched_for` key is the one field still smaller here than at its maximum
+/// (33 bytes over None): every ticket in this test attended, so none vouched.
+const RESERVED_PER_SEAT: u64 = 33;
+
+/// The worst case an organizer pays for: every seat filled, cancelled and filled again
+/// (the lifetime limit of two RSVPs per seat), a refused deposit per seat, five code
+/// slots caught and flagged by everyone, every code revealed at full length, and a
+/// reliability record per attendee, all with the longest addresses Bail accepts.
+#[test]
+fn prepaid_storage_covers_the_worst_case() {
+    let capacity = 25u32;
+    let mut c = with_intents();
     let before = env::storage_usage();
     let mut event = new_event(capacity);
     event.checkin = CheckinConfig { slots: MAX_SLOTS, required: MAX_SLOTS, window_ms: WINDOW };
@@ -1442,21 +1778,28 @@ fn prepaid_storage_covers_a_full_event() {
     let token = event.token.to_string();
     let id = create(&mut c, event);
 
-    let payout = |i: u32| format!("{i:03}{}", "x".repeat(MAX_PAYOUT_LEN - 3));
+    let address = |n: u32| format!("intents:{n:064}");
+    assert_eq!(address(0).len(), MAX_PAYOUT_LEN);
     for i in 0..capacity {
-        send(&mut c, &token, NOW, DEPOSIT, msg(id, i as u8, &payout(i)));
+        send(&mut c, &token, NOW, DEPOSIT, msg(id, i as u8, &address(i)));
+        cancel(&mut c, id, i as u8, NOW, sign(i as u8, &cancel_message(id)));
+    }
+    let seed = |i: u32| (100 + i) as u8;
+    for i in 0..capacity {
+        send(&mut c, &token, NOW, DEPOSIT, msg(id, seed(i), &address(1_000 + i)));
     }
     for i in 0..capacity {
-        send(&mut c, &token, RSVP_CLOSES, DEPOSIT, msg(id, 200, &payout(100 + i)));
+        send(&mut c, &token, RSVP_CLOSES, DEPOSIT, msg(id, 250, &address(2_000 + i)));
     }
+
     let code = |slot: u8| format!("{slot}{}", "a".repeat(MAX_CODE_LEN - 1));
     for slot in 0..MAX_SLOTS {
         let at = OPENS + u64::from(slot) * WINDOW;
         open_code(&mut c, id, slot, at, &code(slot));
         for i in 0..capacity {
-            let p = Base64VecU8(catch_proof(id, slot, &code(slot), &key_bytes(i as u8)).to_vec());
-            catch_code(&mut c, id, slot, u32::MAX, i as u8, p, at);
-            flag(&mut c, id, slot, i as u8, at, sign(i as u8, &flag_message(id, slot)));
+            let p = Base64VecU8(catch_proof(id, slot, &code(slot), &key_bytes(seed(i))).to_vec());
+            catch_code(&mut c, id, slot, u32::MAX, seed(i), p, at);
+            flag(&mut c, id, slot, seed(i), at, sign(seed(i), &flag_message(id, slot)));
         }
     }
     let closes = OPENS + u64::from(MAX_SLOTS) * WINDOW;
@@ -1465,11 +1808,10 @@ fn prepaid_storage_covers_a_full_event() {
     }
     let ends = c.get_event(id).unwrap().schedule.dispute_ends_at_ms;
     let t = tally_all(&mut c, id, ends, 1_000);
-    assert_eq!((t.attended, t.stage), (capacity, TallyStage::Done));
-    assert_eq!(c.reliability(payout(0)).attended, 1);
+    assert_eq!((t.attended, t.new_records), (capacity, capacity));
     let e = c.get_event(id).unwrap();
-    assert_eq!((e.registered, e.owed_records), (capacity, capacity));
-    assert!(e.slots.iter().all(|s| s.revealed.as_ref().is_some_and(|r| r.len() == MAX_CODE_LEN)));
+    assert_eq!((e.registered, e.tickets_created), (capacity, 2 * capacity));
+    assert_eq!((e.owed_records, e.owed_total), (capacity, 2 * capacity));
 
     c.events.flush();
     c.tickets.flush();
@@ -1477,7 +1819,7 @@ fn prepaid_storage_covers_a_full_event() {
     c.owed.flush();
     c.reputation.flush();
     let used = env::storage_usage() - before;
-    let needed = used + RESERVED_PER_EVENT + RESERVED_PER_SEAT * u64::from(capacity);
+    let needed = used + RESERVED_PER_SEAT * u64::from(capacity);
     let prepaid = seat_storage_cost(capacity).as_yoctonear() / env::storage_byte_cost().as_yoctonear();
     println!("storage for {capacity} seats: needs {needed} bytes, prepaid {prepaid}");
     assert!(needed <= prepaid as u64, "needs {needed} bytes, prepaid {prepaid}");

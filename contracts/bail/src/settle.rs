@@ -23,6 +23,8 @@ pub enum TallyStage {
 pub struct Tally {
     pub stage: TallyStage,
     pub cursor: u32,
+    /// Payout progress, once the tally is done.
+    pub paid_cursor: u32,
     pub attended: u32,
     pub vouched: u32,
     pub forfeited: u32,
@@ -35,6 +37,8 @@ pub struct Tally {
     pub everyone_refunded: bool,
     /// Whether enough codes were revealed for attendance to mean anything.
     pub measured: bool,
+    /// Reliability records this event created, for the close-time storage refund.
+    pub new_records: u32,
 }
 
 /// Reliability per payout address. Only events where attendance was measured count.
@@ -106,6 +110,9 @@ impl Bail {
                 let key = self.ticket_index[&(event_id, i)];
                 let ticket = &self.tickets[&(event_id, key)];
                 let outcome = ticket.outcome.expect("classified");
+                if !self.reputation.contains_key(&ticket.payout_to) {
+                    tally.new_records += 1;
+                }
                 let record = self.reputation.entry(ticket.payout_to.clone()).or_default();
                 record.rsvps += 1;
                 match outcome {

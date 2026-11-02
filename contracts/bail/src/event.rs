@@ -8,6 +8,8 @@ use crate::{emit, Bail, BailExt, EventId};
 pub const MAX_CAPACITY: u32 = 1_000;
 pub const MAX_SLOTS: u8 = 5;
 pub const MAX_CODE_LEN: usize = 64;
+/// RSVPs an event accepts over its lifetime, per seat, which bounds cancellation churn.
+pub const MAX_TICKETS_PER_SEAT: u32 = 2;
 pub const MAX_FEE_BPS: u16 = 1_000;
 pub const MIN_WINDOW_FLOOR_MS: u64 = 60_000;
 pub const STORAGE_PER_EVENT: NearToken = NearToken::from_millinear(20);
@@ -89,13 +91,18 @@ pub struct Event {
     pub deposit: U128,
     pub capacity: u32,
     pub registered: u32,
+    pub tickets_created: u32,
+    /// Owed records from refused transfers, capped at capacity.
     pub owed_records: u32,
+    /// Every owed record ever created for this event, for the close-time storage refund.
+    pub owed_total: u32,
     pub status: Status,
     pub schedule: Schedule,
     pub checkin: CheckinConfig,
     pub slots: Vec<Slot>,
     /// Progress and totals, once tally has started.
     pub tally: Option<Tally>,
+    pub closed: bool,
 }
 
 #[near(serializers = [json])]
@@ -174,7 +181,9 @@ impl NewEvent {
             deposit: self.deposit,
             capacity: self.capacity,
             registered: 0,
+            tickets_created: 0,
             owed_records: 0,
+            owed_total: 0,
             status: Status::Active,
             schedule: Schedule {
                 cancel_cutoff_ms: self.cancel_cutoff_ms,
@@ -187,6 +196,7 @@ impl NewEvent {
             checkin: c,
             slots: Vec::new(),
             tally: None,
+            closed: false,
         }
     }
 }

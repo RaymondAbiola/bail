@@ -4,7 +4,8 @@ use near_sdk::serde::Deserialize;
 use near_sdk::serde_json::{self, json};
 use near_sdk::{env, near, AccountId, PromiseOrValue, PublicKey};
 
-use crate::event::Status;
+use crate::event::{Status, MAX_TICKETS_PER_SEAT};
+use crate::payout::PayoutTo;
 use crate::{emit, ticket_bytes, Bail, BailExt, EventId, TicketKey, MAX_PAYOUT_LEN};
 
 /// The `msg` attached to `ft_transfer_call`, e.g. by 1Click's `customRecipientMsg`.
@@ -43,6 +44,8 @@ impl FungibleTokenReceiver for Bail {
                 Some("full")
             } else if self.tickets.contains_key(&(event_id, ticket)) {
                 Some("already_registered")
+            } else if event.tickets_created >= event.capacity * MAX_TICKETS_PER_SEAT {
+                Some("rsvp_limit")
             } else {
                 None
             };
@@ -91,8 +94,8 @@ impl Bail {
         let msg: RsvpMsg = serde_json::from_str(msg).ok()?;
         let event = self.events.get(&msg.event_id)?;
         if &event.token != token
-            || msg.payout_to.is_empty()
             || msg.payout_to.len() > MAX_PAYOUT_LEN
+            || PayoutTo::parse(&msg.payout_to, &self.config).is_none()
         {
             return None;
         }
@@ -113,12 +116,17 @@ impl Bail {
             return false;
         }
         event.owed_records += 1;
+        event.owed_total += 1;
         self.owed.insert(key, amount);
         true
     }
 
     /// For refunds whose storage is already paid for, such as a cancelled ticket.
     pub(crate) fn owe_uncapped(&mut self, event_id: EventId, payout_to: &str, amount: u128) {
-        *self.owed.entry((event_id, payout_to.to_owned())).or_insert(0) += amount;
+        let key = (event_id, payout_to.to_owned());
+        if !self.owed.contains_key(&key) {
+            self.events.get_mut(&event_id).unwrap().owed_total += 1;
+        }
+        *self.owed.entry(key).or_insert(0) += amount;
     }
 }

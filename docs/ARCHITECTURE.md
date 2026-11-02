@@ -121,13 +121,13 @@ pub struct Bail {
 }
 
 pub struct Event {
-    organizer, arbiter, token, deposit, capacity, registered, owed_records,
+    organizer, arbiter, token, deposit, capacity, registered, tickets_created,
+    owed_records, owed_total, closed,
     schedule: Schedule,        // all timestamps, fixed at creation
     checkin: CheckinConfig,    // slots K, required catches R, window length
     slots: Vec<Slot>,          // opened_at, commitment, revealed, no-code flags
     status: Status,            // Active, Cancelled or Voided
     tally: Option<Tally>,      // stage, cursor, counts, pool, fee, bonus, dust; fixed before money moves
-    storage_bytes: u64,        // measured, so close_event returns exactly what is unused
 }
 
 pub struct Ticket {
@@ -157,9 +157,10 @@ pub struct Ticket {
 | `vouch(event, voucher, target, sig)` | anyone, voucher-signed | Dispute, from the reveal deadline | An attendee with final, verified attendance vouches once, never for themselves or for someone who already attended. Two vouches make the target Vouched. |
 | `void_event(event)` | arbiter, with 1 yoctoNEAR, which a Sputnik DAO proposal can attach | before `dispute_ends_at` | Status becomes Voided. Deposits arriving afterwards are owed, and every ticket is refunded in the payout pages. |
 | `tally(event, limit)` | anyone | after the dispute window, or at once if cancelled or voided | Classifies up to `limit` tickets per call. Once all are classified it fixes the pool, fee, bonus and dust, then records reliability in further pages. |
-| `payout(event, limit)` | anyone | Settled | Pushes up to `limit` transfers. A failed transfer becomes owed. |
+| `payout(event, limit)` | anyone | tally done | Starts up to `limit` payouts. Each ticket is marked paid first, so nothing is paid twice. |
 | `claim(event, ticket)` | anyone | Settled | Pays one ticket. |
-| `claim_owed(event, payout_to)` | anyone | any | Pays an owed amount. |
+| `claim_owed(event, payout_to)` | anyone | any | Pays an owed amount. The record is removed first and restored if the transfer fails. |
+| `on_transfer(...)` | the contract itself (`#[private]`) | after each transfer | Reads the token's answer: a failed ticket payout is rolled back so it can be paid again, a failed owed claim is restored, and anything NEAR Intents returns is owed. |
 | `close_event(event, limit)` | anyone | all paid | Frees ticket storage in pages, then returns unused storage NEAR to the organizer. |
 | Views | anyone | any | `get_config`, `get_event`, `get_ticket`, `get_tickets(event, from, limit)`, `standing`, `event_totals`, `get_payout`, `get_owed`, `reliability`, `storage_cost`. |
 
@@ -177,9 +178,10 @@ The rule is to bounce only what cannot be returned any other way. When a deliver
 
 | Situation | Result |
 |---|---|
-| Note unreadable, unknown event, wrong token, bad ticket key, missing or oversized payout address | Bounced to the sender |
+| Note unreadable, unknown event, wrong token, bad ticket key, or a payout address Bail can't pay (anything but `near:<account>`, or `intents:<account>` where enabled) | Bounced to the sender |
 | Less than the deposit | Bounced, because it can't pay for a refund record's storage |
 | RSVP closed, event full, cancelled or voided, ticket already registered | Recorded as owed to the payout address |
+| The event has already taken two RSVPs per seat over its lifetime, cancellations included | Recorded as owed (`rsvp_limit`), so cancel-and-rejoin loops are bounded |
 | More than the deposit | Seat, with the excess owed |
 | The event's owed records already equal its capacity | Bounced, so refused transfers can never use more storage than the organizer prepaid |
 
@@ -253,12 +255,12 @@ Cancelled and voided events can be tallied at once, and every ticket comes out R
 
 ### 6.8 Payouts
 
-Each payout is marked paid before its `ft_transfer`, and the callback reverts the mark and records the amount as owed if the transfer fails (for example, the recipient isn't registered with the token). Nothing is lost: it waits for `claim_owed`.
+Each ticket is marked paid before its transfer starts, so nothing is paid twice. The callback reads the token's answer. If the transfer failed (for example, the recipient isn't registered with the token), the mark is cleared and the ticket can be paid again with `payout` or `claim`; this needs no new storage. If NEAR Intents returns part of a transfer, the returned amount is owed. An answer the contract can't read counts as paid, so a confusing token can never cause a second payment. Closing an event moves any still-unpaid payout into an owed record, so nothing is lost.
 
 Payout addresses:
 
 - `near:<account>`: an `ft_transfer` to a NEAR account. Works on testnet and mainnet.
-- `intents:<id>` (accepted only where the contract was initialised with an Intents account, so mainnet only): an `ft_transfer_call` into `intents.near` that credits an Intents account the attendee's own wallet controls, such as their EVM address. It needs no bridge fee, and they can withdraw to any chain whenever they like. If Intents returns part of the transfer, the callback records the returned amount as owed. This path is checked with a tiny mainnet payout before it is used for real.
+- `intents:<id>` (accepted only where the contract was initialised with an Intents account, so mainnet only): an `ft_transfer_call` into `intents.near` whose `msg` is the receiving account ID, the plain form NEAR Intents' deposit parser accepts. It credits an Intents account the attendee's own wallet controls, such as their EVM address. It needs no bridge fee, and they can withdraw to any chain whenever they like. If Intents returns part of the transfer, the callback records the returned amount as owed. This path is checked with a tiny mainnet payout before it is used for real.
 
 ### 6.9 Reputation
 
@@ -283,8 +285,8 @@ Hashes: `commitment = sha256(F("bail/v1/code") ‖ F(contract_id) ‖ F(event_id
 
 | Item | Who pays | Notes |
 |---|---|---|
-| Event and seats | organizer, at creation | A per-seat amount covers the ticket, its catches, its index entry, its reputation record and one owed record. A test fills an event to capacity with maximum-size fields and checks actual storage against what was prepaid. The contract measures each event's storage, so `close_event` returns exactly what is unused. |
-| Owed records | organizer, as part of each seat | Capped at one per seat per event; a cancellation refund reuses the freed ticket's storage instead. Only transfers of at least the deposit create one, and past the cap refused transfers bounce, so a flood of transfers can never drain the contract's storage and freeze other events. |
+| Event and seats | organizer, at creation | A per-seat amount covers the ticket, its catches, its index entry, a reliability record and owed records. A test builds the worst case: every seat filled, cancelled and refilled, a refused deposit per seat, every code caught, flagged and revealed at full length, with the longest addresses Bail accepts, and checks actual storage against what was prepaid. At close the organizer gets everything back except the event's own budget and upper bounds for the owed and reliability records that outlive it, so the refund can never exceed what is truly unused. |
+| Owed records | organizer, as part of each seat | Refused transfers create at most one per seat. Cancellation refunds create at most one per RSVP, and an event takes at most two RSVPs per seat over its lifetime. Past the cap, refused transfers bounce, so a flood of transfers can never drain the contract's storage and freeze other events. |
 | Gas for attendees | relayer | Bounded by the relayer key's allowance. |
 | Tally, payout and close | whoever calls them, usually the keeper | Paged, so each call stays under the 300 Tgas limit. |
 
@@ -343,7 +345,7 @@ If the swap fails, 1Click refunds the attendee's own Solana address automaticall
 
 ### 8.4 Settlement
 
-![Settlement. After the dispute window anyone tallies the event in pages, then pays out; a failed transfer becomes owed.](images/settlement.svg)
+![Settlement. After the dispute window anyone tallies the event in pages, then pays out; a failed transfer is rolled back so it can be paid again, and closing the event frees its storage.](images/settlement.svg)
 
 ## 9. Threat model
 
@@ -370,8 +372,9 @@ If the swap fails, 1Click refunds the attendee's own Solana address automaticall
 | Ticket key stolen | attacker | The payout address is fixed at RSVP, so the thief can only catch codes for someone else's benefit, or cancel and refund the owner. | The owner loses their seat if the thief cancels. |
 | Ticket key lost | attendee | Two attendees can vouch, using the target's public key, which is onchain. | Vouched tickets get their deposit back with no bonus. |
 | Arbiter abuse | arbiter | `void_event` only refunds. | Griefing: everyone gets refunds and no bonus. |
-| Payout transfer fails | token | A failed transfer is rolled back into an owed record. | None |
-| Storage flood from many tiny transfers | anyone | Owed records are prepaid and capped at one per seat per event; beyond that, transfers bounce. | None |
+| Payout transfer fails | token | Marked paid first and rolled back on failure, so it can be paid again; at close it moves to an owed record. | None |
+| A token gives an answer the contract can't read | token | It counts as paid. | A confusing token can't cause a second payment; at worst that one payout needs manual follow-up. |
+| Storage flood from many tiny transfers, or cancel-and-rejoin loops | anyone | Owed records are prepaid and capped; an event takes at most two RSVPs per seat over its lifetime. | None |
 | Deposit arrives after a cancellation | anyone | Deposits into a cancelled or voided event are recorded as owed, never seated. | None |
 | Underpaid 1Click delivery | infrastructure | Exact-output quotes. | It bounces to the delivering account, not the attendee. |
 | 1Click delivery problems | infrastructure | Tested with a $1 delivery before any mainnet use. Only notes that name a payout address are ever kept. | `customRecipientMsg` is marked "HIGHLY EXPERIMENTAL" by NEAR Intents. |

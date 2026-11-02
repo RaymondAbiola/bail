@@ -8,5 +8,5 @@ sequenceDiagram
   Note over B: pool, fee and bonus fixed and stored
   K->>B: payout(event, 20)
   B->>U: ft_transfer to each payout address
-  U-->>B: callback, a failed transfer becomes owed
+  U-->>B: callback, a failed transfer is rolled back for retry
   K->>B: close_event

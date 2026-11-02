@@ -16,6 +16,8 @@ pub struct Ticket {
     pub vouched_by: u8,
     /// Set by tally.
     pub outcome: Option<Outcome>,
+    /// Set before a payout transfer starts, cleared again if it fails.
+    pub paid: bool,
 }
 
 #[near(serializers = [borsh, json])]
@@ -61,6 +63,7 @@ impl Bail {
         let event = self.events.get_mut(&event_id).unwrap();
         let index = event.registered;
         event.registered += 1;
+        event.tickets_created += 1;
         self.ticket_index.insert((event_id, index), ticket);
         self.tickets.insert(
             (event_id, ticket),
@@ -72,6 +75,7 @@ impl Bail {
                 vouched_for: None,
                 vouched_by: 0,
                 outcome: None,
+                paid: false,
             },
         );
     }
