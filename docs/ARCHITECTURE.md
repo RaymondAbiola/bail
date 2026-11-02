@@ -97,7 +97,7 @@ Phase boundaries are timestamps fixed at creation and never editable. The contra
 | CheckIn | `checkin_opens_at_ms` | Host, attendees | The host opens up to K code slots, one at a time, at moments of their choosing. Attendees catch each code within its window and can flag a slot where no code was shown. |
 | Reveal | `checkin_closes_at_ms` | Anyone who knows a code | Each code can be revealed as soon as its own window closes, up to the reveal deadline, and is checked against its commitment. Unrevealed slots become void at the deadline. |
 | Dispute | `reveal_deadline_ms` | Qualified attendees, arbiter | Vouching for people whose phone died. The arbiter may void the event. |
-| Tally | `dispute_ends_at_ms` | Anyone | Tickets are classified and the pool is split, in pages. |
+| Tally | `dispute_ends_at_ms` | Anyone | Tickets are classified in pages, the split is fixed, then reliability is recorded in pages. |
 | Settled | tally complete | Anyone | Payouts are pushed in pages. Each ticket can also be claimed individually. |
 | Closed | everything paid | Anyone, in pages | Ticket storage is freed and unused prepaid NEAR goes back to the organizer. |
 
@@ -125,8 +125,8 @@ pub struct Event {
     schedule: Schedule,        // all timestamps, fixed at creation
     checkin: CheckinConfig,    // slots K, required catches R, window length
     slots: Vec<Slot>,          // opened_at, commitment, revealed, no-code flags
-    status: Status,            // Active, Cancelled, Voided, Tallying, Settled, Closed
-    totals: Totals,            // deposits, refunds, pool, fee, bonus, paid; for the conservation check
+    status: Status,            // Active, Cancelled or Voided
+    tally: Option<Tally>,      // stage, cursor, counts, pool, fee, bonus, dust; fixed before money moves
     storage_bytes: u64,        // measured, so close_event returns exactly what is unused
 }
 
@@ -156,12 +156,12 @@ pub struct Ticket {
 | `reveal(event, slot, code)` | anyone | Reveal | Checks the code against the slot's commitment and marks the slot revealed. |
 | `vouch(event, voucher, target, sig)` | anyone, voucher-signed | Dispute, from the reveal deadline | An attendee with final, verified attendance vouches once, never for themselves or for someone who already attended. Two vouches make the target Vouched. |
 | `void_event(event)` | arbiter, with 1 yoctoNEAR, which a Sputnik DAO proposal can attach | before `dispute_ends_at` | Status becomes Voided. Deposits arriving afterwards are owed, and every ticket is refunded in the payout pages. |
-| `tally(event, limit)` | anyone | Tally | Classifies up to `limit` tickets, then computes the split on the last page. |
+| `tally(event, limit)` | anyone | after the dispute window, or at once if cancelled or voided | Classifies up to `limit` tickets per call. Once all are classified it fixes the pool, fee, bonus and dust, then records reliability in further pages. |
 | `payout(event, limit)` | anyone | Settled | Pushes up to `limit` transfers. A failed transfer becomes owed. |
 | `claim(event, ticket)` | anyone | Settled | Pays one ticket. |
 | `claim_owed(event, payout_to)` | anyone | any | Pays an owed amount. |
 | `close_event(event, limit)` | anyone | all paid | Frees ticket storage in pages, then returns unused storage NEAR to the organizer. |
-| Views | anyone | any | `get_config`, `get_event`, `get_ticket`, `get_tickets(event, from, limit)`, `standing`, `event_totals`, `get_owed`, `reliability`, `storage_cost`. |
+| Views | anyone | any | `get_config`, `get_event`, `get_ticket`, `get_tickets(event, from, limit)`, `standing`, `event_totals`, `get_payout`, `get_owed`, `reliability`, `storage_cost`. |
 
 ### 6.3 Deposits
 
@@ -247,7 +247,9 @@ Worked example, 20 RSVPs at 1 USDC (6 decimals), no fee: 15 attend, 1 is vouched
 | Dust | | | 10 |
 | **Sum** | 20 | | **20,000,000** (equals deposits) |
 
-Tally runs in pages of `limit` tickets, so a 1,000-seat event settles in a few transactions. Tally computes everything before any money moves, and the totals are stored on the event, so `event_totals` shows the conservation check at all times.
+Tally runs in pages of `limit` tickets, so a 1,000-seat event settles in a few transactions. Tally computes everything before any money moves, and the totals are stored on the event, so `event_totals` shows the conservation check at all times. The contract's tests reproduce the worked example above to the micro-USDC, and check that tallying in pages of 3 gives exactly the same result as one call.
+
+Cancelled and voided events can be tallied at once, and every ticket comes out Refunded.
 
 ### 6.8 Payouts
 
@@ -260,7 +262,7 @@ Payout addresses:
 
 ### 6.9 Reputation
 
-Tally adds to a record per payout address: RSVPs, attended, vouched, forfeited. `reliability(payout_to)` returns it, and the web app shows it as a badge. It is a signal, not a guarantee: one person can hold several addresses. Later it powers smaller deposits for reliable people and bonus weighting (section 16).
+Tally records each ticket's outcome against its payout address: RSVPs, attended, vouched, forfeited. It only does so when attendance was actually measured: not for cancelled or voided events, not when nobody attended, and not when so few codes were revealed that nobody needed a catch. Otherwise a host who skipped check-in would hand everyone a perfect record. `reliability(payout_to)` returns the record, and the web app shows it as a badge. It is a signal, not a guarantee: one person can hold several addresses. Later it powers smaller deposits for reliable people and bonus weighting (section 16).
 
 ### 6.10 Signed messages
 

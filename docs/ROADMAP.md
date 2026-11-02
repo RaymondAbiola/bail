@@ -34,8 +34,8 @@ What is being built, in order. Each stage builds on the one before it. The desig
 
 - [x] Vouching for attendees whose phone died
 - [x] A required arbiter, never the organizer, who can void an event and can only refund
-- [ ] Tally that anyone can run, in pages, fixing the pool, bonus and fee before any money moves
-- [ ] Reliability records for every payout address
+- [x] Tally that anyone can run, in pages, fixing the pool, bonus and fee before any money moves
+- [x] Reliability records for every payout address
 - [ ] Payouts pushed in pages or claimed per ticket, with failed transfers kept as owed
 - [ ] Payouts into NEAR Intents balances on mainnet
 

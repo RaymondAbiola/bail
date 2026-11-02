@@ -2,6 +2,7 @@ use near_sdk::json_types::{Base64VecU8, U128};
 use near_sdk::serde_json::json;
 use near_sdk::{env, near, require, AccountId, NearToken, Promise};
 
+use crate::settle::Tally;
 use crate::{emit, Bail, BailExt, EventId};
 
 pub const MAX_CAPACITY: u32 = 1_000;
@@ -93,6 +94,8 @@ pub struct Event {
     pub schedule: Schedule,
     pub checkin: CheckinConfig,
     pub slots: Vec<Slot>,
+    /// Progress and totals, once tally has started.
+    pub tally: Option<Tally>,
 }
 
 #[near(serializers = [json])]
@@ -183,6 +186,7 @@ impl NewEvent {
             },
             checkin: c,
             slots: Vec::new(),
+            tally: None,
         }
     }
 }

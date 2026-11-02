@@ -6,6 +6,7 @@ mod deposit;
 mod event;
 mod recourse;
 mod reveal;
+mod settle;
 mod tickets;
 #[cfg(test)]
 mod tests;
@@ -16,7 +17,8 @@ pub use event::{
 };
 pub use recourse::VOUCHES_NEEDED;
 pub use reveal::Standing;
-pub use tickets::{Catch, Ticket};
+pub use settle::{Record, Tally, TallyStage};
+pub use tickets::{Catch, Outcome, Ticket};
 
 use near_sdk::serde_json::{json, Value};
 use near_sdk::store::LookupMap;
@@ -34,6 +36,7 @@ enum StorageKey {
     Tickets,
     TicketIndex,
     Owed,
+    Reputation,
 }
 
 #[near(contract_state)]
@@ -46,6 +49,7 @@ pub struct Bail {
     // Position -> ticket, so tally can page through an event's tickets in order.
     ticket_index: LookupMap<(EventId, u32), TicketKey>,
     owed: LookupMap<(EventId, String), u128>,
+    reputation: LookupMap<String, Record>,
 }
 
 #[near]
@@ -60,6 +64,7 @@ impl Bail {
             tickets: LookupMap::new(StorageKey::Tickets),
             ticket_index: LookupMap::new(StorageKey::TicketIndex),
             owed: LookupMap::new(StorageKey::Owed),
+            reputation: LookupMap::new(StorageKey::Reputation),
         }
     }
 

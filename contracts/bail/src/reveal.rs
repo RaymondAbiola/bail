@@ -104,10 +104,12 @@ pub(crate) fn slot_states(
     now: u64,
 ) -> Vec<SlotState> {
     (0..event.checkin.slots)
-        .map(|slot| match event.slots.get(usize::from(slot)) {
-            None if now >= event.schedule.checkin_closes_at_ms => SlotState::Void,
-            None => SlotState::Pending,
-            Some(opened) => match &opened.revealed {
+        .map(|slot| {
+            if slot_is_void(event, slot, now) {
+                return SlotState::Void;
+            }
+            let revealed = event.slots.get(usize::from(slot)).and_then(|s| s.revealed.as_ref());
+            match revealed {
                 Some(code) => {
                     let expected = catch_proof(event_id, slot, code, key);
                     let caught = ticket.catches[usize::from(slot)]
@@ -115,11 +117,24 @@ pub(crate) fn slot_states(
                         .is_some_and(|c| c.proof.0.as_slice() == expected.as_slice());
                     SlotState::Revealed { caught }
                 }
-                None if now >= event.schedule.reveal_deadline_ms => SlotState::Void,
                 None => SlotState::Pending,
-            },
+            }
         })
         .collect()
+}
+
+/// Never opened by the end of check-in, or opened and never revealed by the deadline.
+fn slot_is_void(event: &Event, slot: u8, now: u64) -> bool {
+    match event.slots.get(usize::from(slot)) {
+        None => now >= event.schedule.checkin_closes_at_ms,
+        Some(opened) => opened.revealed.is_none() && now >= event.schedule.reveal_deadline_ms,
+    }
+}
+
+pub(crate) fn void_slots(event: &Event, now: u64) -> u8 {
+    (0..event.checkin.slots)
+        .filter(|&slot| slot_is_void(event, slot, now))
+        .count() as u8
 }
 
 /// Lowercase ASCII words joined by single spaces, so "Tiger  MAPLE" and "tiger maple" match.

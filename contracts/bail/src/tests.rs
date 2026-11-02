@@ -7,6 +7,7 @@ use near_sdk::{env, testing_env, AccountId, CurveType, NearToken, PromiseOrValue
 
 use crate::event::seat_storage_cost;
 use crate::reveal::{catch_proof, code_commitment, normalize_code, qualifies, SlotState};
+use crate::settle::payout_amount;
 use crate::*;
 
 const NS_PER_MS: u64 = 1_000_000;
@@ -235,6 +236,45 @@ fn vouch(c: &mut Bail, event_id: EventId, voucher: u8, target: u8, at_ms: u64) {
 fn void_as(c: &mut Bail, event_id: EventId, who: &str, at_ms: u64, attached: NearToken) {
     ctx(who, at_ms, attached);
     c.void_event(event_id);
+}
+
+fn tally_all(c: &mut Bail, event_id: EventId, at_ms: u64, limit: u32) -> Tally {
+    ctx("keeper.near", at_ms, NearToken::from_near(0));
+    while c.tally(event_id, limit) != TallyStage::Done {}
+    c.event_totals(event_id).unwrap()
+}
+
+fn payout_of(c: &Bail, event_id: EventId, seed: u8) -> u128 {
+    c.get_payout(event_id, ticket(seed)).unwrap().0
+}
+
+/// The worked example in ARCHITECTURE.md section 6.7: 20 RSVPs at 1 USDC, tickets 1 to 15
+/// catch every code, 16 is vouched for by 1 and 2, and 17 to 20 never show.
+fn worked_example(fee: Option<(u16, &str)>) -> (Bail, EventId, u64) {
+    ctx("deployer.near", NOW, NearToken::from_near(0));
+    let mut c = Bail::new(Config {
+        fee_bps: fee.map_or(0, |f| f.0),
+        fee_account: fee.map(|f| acc(f.1)),
+        ..config()
+    });
+    let id = create(&mut c, new_event(20));
+    for seed in 1..=20 {
+        rsvp(&mut c, id, seed, &format!("near:t{seed}.near"));
+    }
+    for (slot, code) in CODES.iter().enumerate() {
+        let (slot, at) = (slot as u8, OPENS + slot as u64 * WINDOW);
+        open_code(&mut c, id, slot, at, code);
+        for seed in 1..=15 {
+            catch_heard(&mut c, id, slot, seed, code, at);
+        }
+    }
+    for (slot, code) in CODES.iter().enumerate() {
+        reveal_code(&mut c, id, slot as u8, code, CLOSES);
+    }
+    let s = c.get_event(id).unwrap().schedule;
+    vouch(&mut c, id, 1, 16, s.reveal_deadline_ms);
+    vouch(&mut c, id, 2, 16, s.reveal_deadline_ms);
+    (c, id, s.dispute_ends_at_ms)
 }
 
 fn checkin_setup() -> (Bail, EventId) {
@@ -1246,14 +1286,148 @@ fn a_voided_event_stops_vouching() {
     vouch(&mut c, id, 1, 3, deadline);
 }
 
+// Tally and reputation
+
+#[test]
+fn tally_reproduces_the_worked_example() {
+    let (mut c, id, ends) = worked_example(None);
+    let t = tally_all(&mut c, id, ends, 1_000);
+    assert_eq!((t.attended, t.vouched, t.forfeited, t.refunded), (15, 1, 4, 0));
+    assert_eq!((t.pool.0, t.fee.0, t.bonus.0, t.dust.0), (4_000_000, 0, 266_666, 10));
+    assert!(t.measured && !t.everyone_refunded);
+
+    assert_eq!(payout_of(&c, id, 1), 1_266_666);
+    assert_eq!(payout_of(&c, id, 16), 1_000_000);
+    assert_eq!(payout_of(&c, id, 20), 0);
+    let paid: u128 = (1..=20).map(|seed| payout_of(&c, id, seed)).sum();
+    assert_eq!(paid + t.fee.0 + t.dust.0, 20 * DEPOSIT);
+}
+
+#[test]
+fn paging_gives_the_same_result_as_one_call() {
+    let (mut one, id, ends) = worked_example(None);
+    let (mut paged, _, _) = worked_example(None);
+    let whole = tally_all(&mut one, id, ends, 1_000);
+    let pages = tally_all(&mut paged, id, ends, 3);
+    assert_eq!(whole, pages);
+    for seed in 1..=20 {
+        assert_eq!(one.get_ticket(id, ticket(seed)), paged.get_ticket(id, ticket(seed)));
+        let address = format!("near:t{seed}.near");
+        assert_eq!(one.reliability(address.clone()), paged.reliability(address));
+    }
+}
+
+#[test]
+fn the_fee_comes_only_from_forfeits() {
+    let (mut c, id, ends) = worked_example(Some((500, "fees.near")));
+    let t = tally_all(&mut c, id, ends, 1_000);
+    assert_eq!((t.pool.0, t.fee.0, t.bonus.0, t.dust.0), (4_000_000, 200_000, 253_333, 5));
+    assert_eq!(payout_of(&c, id, 16), DEPOSIT);
+    let paid: u128 = (1..=20).map(|seed| payout_of(&c, id, seed)).sum();
+    assert_eq!(paid + t.fee.0 + t.dust.0, 20 * DEPOSIT);
+}
+
+#[test]
+fn reliability_records_proven_attendance() {
+    let (mut c, id, ends) = worked_example(None);
+    tally_all(&mut c, id, ends, 1_000);
+    let record = |a: &str| c.reliability(a.to_string());
+    assert_eq!(record("near:t1.near"), Record { rsvps: 1, attended: 1, ..Default::default() });
+    assert_eq!(record("near:t16.near"), Record { rsvps: 1, vouched: 1, ..Default::default() });
+    assert_eq!(record("near:t20.near"), Record { rsvps: 1, forfeited: 1, ..Default::default() });
+    assert_eq!(record("near:nobody.near"), Record::default());
+}
+
+#[test]
+#[should_panic(expected = "the dispute window is still open")]
+fn tally_waits_for_the_dispute_window() {
+    let (mut c, id, ends) = worked_example(None);
+    tally_all(&mut c, id, ends - 1, 1_000);
+}
+
+#[test]
+#[should_panic(expected = "already tallied")]
+fn an_event_is_tallied_once() {
+    let (mut c, id, ends) = worked_example(None);
+    tally_all(&mut c, id, ends, 1_000);
+    c.tally(id, 1_000);
+}
+
+#[test]
+#[should_panic(expected = "limit must be positive")]
+fn a_tally_page_needs_a_limit() {
+    let (mut c, id, ends) = worked_example(None);
+    ctx("keeper.near", ends, NearToken::from_near(0));
+    c.tally(id, 0);
+}
+
+#[test]
+fn a_cancelled_event_refunds_everyone_at_once() {
+    let (mut c, id) = checkin_setup();
+    cancel_event_as(&mut c, id, "organizer.near", NOW, NearToken::from_yoctonear(1));
+    let t = tally_all(&mut c, id, NOW, 1_000);
+    assert!(t.everyone_refunded && !t.measured);
+    assert_eq!(t.refunded, 2);
+    assert_eq!((payout_of(&c, id, 1), payout_of(&c, id, 2)), (DEPOSIT, DEPOSIT));
+    assert_eq!(c.reliability("near:a.near".into()), Record::default());
+}
+
+#[test]
+fn a_voided_event_refunds_everyone() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    void_as(&mut c, id, "arbiter.near", deadline, NearToken::from_yoctonear(1));
+    let t = tally_all(&mut c, id, deadline, 1_000);
+    assert!(t.everyone_refunded);
+    assert!((1..=4).all(|seed| payout_of(&c, id, seed) == DEPOSIT));
+    assert_eq!(c.reliability("near:t1.near".into()), Record::default());
+}
+
+#[test]
+fn nobody_attending_counts_as_voided() {
+    let (mut c, id) = checkin_setup();
+    for (slot, code) in CODES.iter().enumerate() {
+        open_code(&mut c, id, slot as u8, OPENS + slot as u64 * WINDOW, code);
+    }
+    for (slot, code) in CODES.iter().enumerate() {
+        reveal_code(&mut c, id, slot as u8, code, CLOSES);
+    }
+    let ends = c.get_event(id).unwrap().schedule.dispute_ends_at_ms;
+    let t = tally_all(&mut c, id, ends, 1_000);
+    assert!(t.everyone_refunded);
+    assert_eq!((t.attended, t.forfeited), (0, 2));
+    assert_eq!((payout_of(&c, id, 1), payout_of(&c, id, 2)), (DEPOSIT, DEPOSIT));
+    assert_eq!(c.reliability("near:a.near".into()), Record::default());
+}
+
+#[test]
+fn skipped_checkin_refunds_everyone_without_touching_reputation() {
+    let (mut c, id) = checkin_setup();
+    let ends = c.get_event(id).unwrap().schedule.dispute_ends_at_ms;
+    let t = tally_all(&mut c, id, ends, 1_000);
+    assert_eq!((t.attended, t.pool.0, t.bonus.0), (2, 0, 0));
+    assert!(!t.measured);
+    assert_eq!((payout_of(&c, id, 1), payout_of(&c, id, 2)), (DEPOSIT, DEPOSIT));
+    assert_eq!(c.reliability("near:a.near".into()), Record::default());
+}
+
+#[test]
+fn payouts_follow_outcomes() {
+    let t = Tally { bonus: U128(5), ..Default::default() };
+    assert_eq!(payout_amount(Outcome::Attended, &t, 100), 105);
+    assert_eq!(payout_amount(Outcome::Vouched, &t, 100), 100);
+    assert_eq!(payout_amount(Outcome::Refunded, &t, 100), 100);
+    assert_eq!(payout_amount(Outcome::Forfeited, &t, 100), 0);
+    let all = Tally { everyone_refunded: true, ..t };
+    assert_eq!(payout_amount(Outcome::Forfeited, &all, 100), 100);
+}
+
 // Storage
 
 /// Bytes each seat can still grow by: a filled `vouched_for` key (33 bytes over None),
-/// and the reputation record a later stage adds (key prefix, payout address, four
-/// counters, record overhead).
-const RESERVED_PER_SEAT: u64 = 33 + (1 + 4 + MAX_PAYOUT_LEN as u64 + 16 + 40);
-/// Bytes each event will still need for the settlement totals that a later stage adds.
-const RESERVED_PER_EVENT: u64 = 8 * 16;
+/// and the paid flag a later stage adds.
+const RESERVED_PER_SEAT: u64 = 33 + 1;
+/// Bytes each event will still need: the measured storage counter a later stage adds.
+const RESERVED_PER_EVENT: u64 = 8;
 
 #[test]
 fn prepaid_storage_covers_a_full_event() {
@@ -1280,7 +1454,8 @@ fn prepaid_storage_covers_a_full_event() {
         let at = OPENS + u64::from(slot) * WINDOW;
         open_code(&mut c, id, slot, at, &code(slot));
         for i in 0..capacity {
-            catch_code(&mut c, id, slot, u32::MAX, i as u8, proof(slot), at);
+            let p = Base64VecU8(catch_proof(id, slot, &code(slot), &key_bytes(i as u8)).to_vec());
+            catch_code(&mut c, id, slot, u32::MAX, i as u8, p, at);
             flag(&mut c, id, slot, i as u8, at, sign(i as u8, &flag_message(id, slot)));
         }
     }
@@ -1288,6 +1463,10 @@ fn prepaid_storage_covers_a_full_event() {
     for slot in 0..MAX_SLOTS {
         reveal_code(&mut c, id, slot, &code(slot), closes);
     }
+    let ends = c.get_event(id).unwrap().schedule.dispute_ends_at_ms;
+    let t = tally_all(&mut c, id, ends, 1_000);
+    assert_eq!((t.attended, t.stage), (capacity, TallyStage::Done));
+    assert_eq!(c.reliability(payout(0)).attended, 1);
     let e = c.get_event(id).unwrap();
     assert_eq!((e.registered, e.owed_records), (capacity, capacity));
     assert!(e.slots.iter().all(|s| s.revealed.as_ref().is_some_and(|r| r.len() == MAX_CODE_LEN)));
@@ -1296,6 +1475,7 @@ fn prepaid_storage_covers_a_full_event() {
     c.tickets.flush();
     c.ticket_index.flush();
     c.owed.flush();
+    c.reputation.flush();
     let used = env::storage_usage() - before;
     let needed = used + RESERVED_PER_EVENT + RESERVED_PER_SEAT * u64::from(capacity);
     let prepaid = seat_storage_cost(capacity).as_yoctonear() / env::storage_byte_cost().as_yoctonear();

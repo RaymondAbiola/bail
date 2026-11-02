@@ -14,6 +14,17 @@ pub struct Ticket {
     /// The one ticket this attendee vouched for, if any.
     pub vouched_for: Option<PublicKey>,
     pub vouched_by: u8,
+    /// Set by tally.
+    pub outcome: Option<Outcome>,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Attended,
+    Vouched,
+    Forfeited,
+    Refunded,
 }
 
 #[near(serializers = [borsh, json])]
@@ -60,6 +71,7 @@ impl Bail {
                 flags: 0,
                 vouched_for: None,
                 vouched_by: 0,
+                outcome: None,
             },
         );
     }
