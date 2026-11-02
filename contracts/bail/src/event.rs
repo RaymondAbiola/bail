@@ -76,6 +76,7 @@ pub struct Slot {
 pub enum Status {
     Active,
     Cancelled,
+    Voided,
 }
 
 #[near(serializers = [borsh, json])]

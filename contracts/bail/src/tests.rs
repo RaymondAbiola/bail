@@ -193,6 +193,50 @@ fn standing_at(c: &Bail, event_id: EventId, seed: u8, at_ms: u64) -> Standing {
     c.standing(event_id, ticket(seed)).unwrap()
 }
 
+const CODES: [&str; 3] = ["alpha one", "bravo two", "charlie three"];
+
+/// Tickets 1 and 2 catch every code, ticket 4 catches one, ticket 3's phone died.
+/// Returns the event with every code revealed, and the reveal and dispute deadlines.
+fn dispute_setup() -> (Bail, EventId, u64, u64) {
+    let (mut c, id) = setup(10);
+    for seed in 1..=4 {
+        rsvp(&mut c, id, seed, &format!("near:t{seed}.near"));
+    }
+    for (slot, code) in CODES.iter().enumerate() {
+        let (slot, at) = (slot as u8, OPENS + slot as u64 * WINDOW);
+        open_code(&mut c, id, slot, at, code);
+        catch_heard(&mut c, id, slot, 1, code, at);
+        catch_heard(&mut c, id, slot, 2, code, at);
+        if slot == 0 {
+            catch_heard(&mut c, id, slot, 4, code, at);
+        }
+    }
+    for (slot, code) in CODES.iter().enumerate() {
+        reveal_code(&mut c, id, slot as u8, code, CLOSES);
+    }
+    let s = c.get_event(id).unwrap().schedule;
+    (c, id, s.reveal_deadline_ms, s.dispute_ends_at_ms)
+}
+
+fn vouch_message(event_id: EventId, target: u8) -> String {
+    format!("bail/v1/vouch/{CONTRACT}/{event_id}/{}", ticket(target))
+}
+
+fn vouch_signed(c: &mut Bail, event_id: EventId, voucher: u8, target: u8, at_ms: u64, signature: Base64VecU8) {
+    ctx("relayer.near", at_ms, NearToken::from_near(0));
+    c.vouch(event_id, ticket(voucher), ticket(target), signature);
+}
+
+fn vouch(c: &mut Bail, event_id: EventId, voucher: u8, target: u8, at_ms: u64) {
+    let signature = sign(voucher, &vouch_message(event_id, target));
+    vouch_signed(c, event_id, voucher, target, at_ms, signature);
+}
+
+fn void_as(c: &mut Bail, event_id: EventId, who: &str, at_ms: u64, attached: NearToken) {
+    ctx(who, at_ms, attached);
+    c.void_event(event_id);
+}
+
 fn checkin_setup() -> (Bail, EventId) {
     let (mut c, id) = setup(10);
     rsvp(&mut c, id, 1, "near:a.near");
@@ -1060,11 +1104,154 @@ fn voiding_a_slot_never_disqualifies_anyone() {
     assert!(checked > 1_000);
 }
 
+// Vouching
+
+#[test]
+fn two_attendees_vouch_for_a_dead_phone() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    assert!(!standing_at(&c, id, 3, deadline).attended);
+    vouch(&mut c, id, 1, 3, deadline);
+    vouch(&mut c, id, 2, 3, deadline + 1);
+    assert_eq!(standing_at(&c, id, 3, deadline + 1).vouches, VOUCHES_NEEDED);
+    assert_eq!(c.get_ticket(id, ticket(1)).unwrap().vouched_for, Some(ticket(3)));
+}
+
+#[test]
+#[should_panic(expected = "only attendees can vouch")]
+fn only_attendees_can_vouch() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    vouch(&mut c, id, 4, 3, deadline);
+}
+
+#[test]
+#[should_panic(expected = "already vouched")]
+fn each_attendee_vouches_once() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    vouch(&mut c, id, 1, 3, deadline);
+    vouch(&mut c, id, 1, 4, deadline);
+}
+
+#[test]
+#[should_panic(expected = "you can't vouch for yourself")]
+fn nobody_vouches_for_themselves() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    vouch(&mut c, id, 1, 1, deadline);
+}
+
+#[test]
+#[should_panic(expected = "the target already attended")]
+fn vouching_is_only_for_people_who_missed_out() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    vouch(&mut c, id, 1, 2, deadline);
+}
+
+#[test]
+#[should_panic(expected = "vouching opens at the reveal deadline")]
+fn vouching_waits_for_final_attendance() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    vouch(&mut c, id, 1, 3, deadline - 1);
+}
+
+#[test]
+#[should_panic(expected = "the dispute window has closed")]
+fn vouching_closes_with_the_dispute_window() {
+    let (mut c, id, _, ends) = dispute_setup();
+    vouch(&mut c, id, 1, 3, ends);
+}
+
+#[test]
+#[should_panic(expected = "invalid signature")]
+fn a_vouch_needs_the_vouchers_own_signature() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    let signature = sign(2, &vouch_message(id, 3));
+    vouch_signed(&mut c, id, 1, 3, deadline, signature);
+}
+
+#[test]
+#[should_panic(expected = "invalid signature")]
+fn a_vouch_cannot_be_redirected() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    let signature = sign(1, &vouch_message(id, 3));
+    vouch_signed(&mut c, id, 1, 4, deadline, signature);
+}
+
+#[test]
+#[should_panic(expected = "no such ticket")]
+fn vouching_needs_a_registered_target() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    vouch(&mut c, id, 1, 9, deadline);
+}
+
+// Arbiter
+
+#[test]
+fn the_arbiter_can_void_until_the_dispute_window_ends() {
+    let (mut c, id, _, ends) = dispute_setup();
+    void_as(&mut c, id, "arbiter.near", ends - 1, NearToken::from_yoctonear(1));
+    assert_eq!(c.get_event(id).unwrap().status, Status::Voided);
+}
+
+#[test]
+#[should_panic(expected = "exactly 1 yoctoNEAR")]
+fn voiding_needs_a_full_access_key() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    void_as(&mut c, id, "arbiter.near", deadline, NearToken::from_near(0));
+}
+
+#[test]
+#[should_panic(expected = "only the arbiter can void")]
+fn only_the_arbiter_can_void() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    void_as(&mut c, id, "organizer.near", deadline, NearToken::from_yoctonear(1));
+}
+
+#[test]
+#[should_panic(expected = "the dispute window has closed")]
+fn voiding_closes_with_the_dispute_window() {
+    let (mut c, id, _, ends) = dispute_setup();
+    void_as(&mut c, id, "arbiter.near", ends, NearToken::from_yoctonear(1));
+}
+
+#[test]
+#[should_panic(expected = "event is not active")]
+fn an_event_is_voided_once() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    void_as(&mut c, id, "arbiter.near", deadline, NearToken::from_yoctonear(1));
+    void_as(&mut c, id, "arbiter.near", deadline, NearToken::from_yoctonear(1));
+}
+
+#[test]
+fn deposits_into_a_voided_event_are_owed() {
+    let (mut c, id) = setup(10);
+    void_as(&mut c, id, "arbiter.near", NOW, NearToken::from_yoctonear(1));
+    assert_eq!(send(&mut c, USDC, NOW, DEPOSIT, msg(id, 1, "near:a.near")), 0);
+    assert_eq!(c.get_event(id).unwrap().registered, 0);
+    assert_eq!(c.get_owed(id, "near:a.near".into()).0, DEPOSIT);
+}
+
+#[test]
+#[should_panic(expected = "event is not active")]
+fn a_voided_event_stops_checkin() {
+    let (mut c, id) = checkin_setup();
+    open_code(&mut c, id, 0, OPENS, CODE);
+    void_as(&mut c, id, "arbiter.near", OPENS + 1, NearToken::from_yoctonear(1));
+    catch_heard(&mut c, id, 0, 1, CODE, OPENS + 2);
+}
+
+#[test]
+#[should_panic(expected = "event is not active")]
+fn a_voided_event_stops_vouching() {
+    let (mut c, id, deadline, _) = dispute_setup();
+    void_as(&mut c, id, "arbiter.near", deadline, NearToken::from_yoctonear(1));
+    vouch(&mut c, id, 1, 3, deadline);
+}
+
 // Storage
 
-/// Bytes each seat will still need for a record that a later stage adds: reputation
-/// (key prefix, payout address, four counters, record overhead).
-const RESERVED_PER_SEAT: u64 = 1 + 4 + MAX_PAYOUT_LEN as u64 + 16 + 40;
+/// Bytes each seat can still grow by: a filled `vouched_for` key (33 bytes over None),
+/// and the reputation record a later stage adds (key prefix, payout address, four
+/// counters, record overhead).
+const RESERVED_PER_SEAT: u64 = 33 + (1 + 4 + MAX_PAYOUT_LEN as u64 + 16 + 40);
 /// Bytes each event will still need for the settlement totals that a later stage adds.
 const RESERVED_PER_EVENT: u64 = 8 * 16;
 

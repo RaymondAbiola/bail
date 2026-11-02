@@ -134,7 +134,7 @@ pub struct Ticket {
     payout_to: String,         // fixed at RSVP
     index: u32,                // position in the event's ticket index
     catches: [Option<Catch>; MAX_SLOTS], // proof and attempt number, per slot
-    vouches_given: u8,
+    vouched_for: Option<PublicKey>, // the one ticket this attendee vouched for
     vouched_by: u8,
     outcome: Option<Outcome>,  // Attended, Vouched, Forfeited, Refunded
     paid: bool,
@@ -154,8 +154,8 @@ pub struct Ticket {
 | `catch(event, slot, attempt, ticket, proof, sig)` | anyone, ticket-signed | slot window | Stores the proof. A ticket can resubmit inside the window to fix a typo; each attempt number must be higher than the last, so an old signature can't be replayed. |
 | `flag_slot(event, slot, ticket, sig)` | anyone, ticket-signed | slot window to reveal deadline | Records that this ticket saw no code for the slot. Evidence for the arbiter; it moves no money. |
 | `reveal(event, slot, code)` | anyone | Reveal | Checks the code against the slot's commitment and marks the slot revealed. |
-| `vouch(event, voucher, target, sig)` | anyone, voucher-signed | Dispute | A qualified voucher vouches once. Two vouches make the target Vouched. |
-| `void_event(event)` | arbiter | before `dispute_ends_at` | Status becomes Voided. Everyone is refunded. |
+| `vouch(event, voucher, target, sig)` | anyone, voucher-signed | Dispute, from the reveal deadline | An attendee with final, verified attendance vouches once, never for themselves or for someone who already attended. Two vouches make the target Vouched. |
+| `void_event(event)` | arbiter, with 1 yoctoNEAR, which a Sputnik DAO proposal can attach | before `dispute_ends_at` | Status becomes Voided. Deposits arriving afterwards are owed, and every ticket is refunded in the payout pages. |
 | `tally(event, limit)` | anyone | Tally | Classifies up to `limit` tickets, then computes the split on the last page. |
 | `payout(event, limit)` | anyone | Settled | Pushes up to `limit` transfers. A failed transfer becomes owed. |
 | `claim(event, ticket)` | anyone | Settled | Pays one ticket. |
@@ -270,10 +270,10 @@ Ticket signatures cover canonical UTF-8 strings, so the Rust contract and the Ty
 bail/v1/catch/<contract_id>/<event_id>/<slot>/<attempt>/<proof_hex>
 bail/v1/flag/<contract_id>/<event_id>/<slot>
 bail/v1/cancel/<contract_id>/<event_id>
-bail/v1/vouch/<contract_id>/<event_id>/<target_pubkey_base58>
+bail/v1/vouch/<contract_id>/<event_id>/<target_public_key>
 ```
 
-The contract id stops a testnet signature from replaying on mainnet, and the event id stops one event's signature from replaying on another. Cancel, flag and vouch are one-shot per ticket. Catches carry an attempt number that must increase, which is the only nonce needed. Signatures are passed as base64-encoded 64-byte ed25519 signatures, and the contract checks them with NEAR's `ed25519_verify` host function. Commitments and proofs are passed as base64-encoded 32 bytes; inside a signed message the proof appears as lowercase hex.
+The contract id stops a testnet signature from replaying on mainnet, and the event id stops one event's signature from replaying on another. In the vouch message the target key appears as `ed25519:<base58>`, rebuilt by the contract from the key's bytes so the signed text doesn't depend on how a caller formatted it. Cancel, flag and vouch are one-shot per ticket. Catches carry an attempt number that must increase, which is the only nonce needed. Signatures are passed as base64-encoded 64-byte ed25519 signatures, and the contract checks them with NEAR's `ed25519_verify` host function. Commitments and proofs are passed as base64-encoded 32 bytes; inside a signed message the proof appears as lowercase hex.
 
 Hashes: `commitment = sha256(F("bail/v1/code") ‖ F(contract_id) ‖ F(event_id) ‖ F(slot) ‖ F(code))` and `proof = sha256(F("bail/v1/proof") ‖ F(contract_id) ‖ F(event_id) ‖ F(slot) ‖ F(code) ‖ F(pubkey))`. `F(x)` is the length of `x` as 4 little-endian bytes followed by `x`, so no two different inputs produce the same bytes. `event_id` is 8 little-endian bytes, `slot` is 1 byte and `pubkey` is the 32 raw key bytes. Codes are normalized to lowercase ASCII words joined by single spaces, at most 64 bytes. The contract's tests pin both hashes against test vectors computed independently in Python, and the SDK's tests will check the same vectors.
 

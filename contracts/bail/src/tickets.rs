@@ -11,6 +11,9 @@ pub struct Ticket {
     pub catches: [Option<Catch>; MAX_SLOTS as usize],
     /// One bit per slot this ticket flagged as having shown no code.
     pub flags: u8,
+    /// The one ticket this attendee vouched for, if any.
+    pub vouched_for: Option<PublicKey>,
+    pub vouched_by: u8,
 }
 
 #[near(serializers = [borsh, json])]
@@ -55,6 +58,8 @@ impl Bail {
                 index,
                 catches: Default::default(),
                 flags: 0,
+                vouched_for: None,
+                vouched_by: 0,
             },
         );
     }

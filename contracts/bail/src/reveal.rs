@@ -33,6 +33,7 @@ pub struct Standing {
     pub void_slots: u8,
     pub catches_needed: u8,
     pub attended: bool,
+    pub vouches: u8,
     /// False until the reveal deadline: pending slots can still be revealed or go void.
     pub is_final: bool,
 }
@@ -89,6 +90,7 @@ impl Bail {
             void_slots,
             catches_needed: event.checkin.required.saturating_sub(void_slots),
             attended: qualifies(event.checkin.required, &states),
+            vouches: ticket.vouched_by,
             is_final: now >= event.schedule.reveal_deadline_ms,
         })
     }
