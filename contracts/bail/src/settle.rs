@@ -104,6 +104,13 @@ impl Bail {
                 let measured = !refund_all
                     && required > void_slots(&self.events[&event_id], now);
                 self.fix_split(&mut tally, deposit, measured);
+                // The fee and the rounding dust become owed to the fee account, so every
+                // token the event took in has a way out. With no fee account the dust,
+                // less than one micro-unit per attendee, stays in the contract.
+                let to_fee = tally.fee.0 + tally.dust.0;
+                if let Some(account) = self.config.fee_account.clone().filter(|_| to_fee > 0) {
+                    self.owe_uncapped(event_id, &format!("near:{account}"), to_fee);
+                }
             }
         } else {
             for i in tally.cursor..end {

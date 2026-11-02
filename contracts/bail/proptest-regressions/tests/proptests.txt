@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc bb156345027d5a3e9c613c14deb2c6cfa03dabdfa53bb6ca7095dbdbd0ced10f # shrinks to h = History { rsvps: 8, spare_seats: 0, slots: 5, required: 4, fee_bps: 0, overpay: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], cancels: [false, false, false, false, false, false, false, false, false, false], late: 0, opened: 3, revealed: [false, true, true, false, false], heard: [[Right, Right, Right, Right, Right], [Right, Right, Right, Right, Right], [Right, Right, Right, Right, Right], [Right, Nothing, Nothing, Right, Right], [Right, Right, Right, Right, Right], [Right, Right, Right, Right, Right], [Right, Nothing, Nothing, Right, Right], [Right, Right, Right, Right, Right], [Right, Right, Right, Right, Right], [Right, Right, Right, Right, Right]], vouch_wants: [0, 0, 0, 0, 0, 0, 2, 0, 0, 0], ending: Normal, tally_page: 1, pay_page: 1 }

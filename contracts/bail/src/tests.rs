@@ -17,6 +17,8 @@ use crate::payout::{OWED_RECORD_BYTES, REPUTATION_RECORD_BYTES};
 use crate::settle::payout_amount;
 use crate::*;
 
+mod proptests;
+
 const NS_PER_MS: u64 = 1_000_000;
 const DEPOSIT: u128 = 1_000_000; // 1 USDC, 6 decimals
 const NOW: u64 = 1_000_000;
@@ -1747,6 +1749,94 @@ fn an_event_closes_once() {
     pay_all(&mut c, id, ends, 1_000);
     close_all(&mut c, id, ends, 1_000);
     close_all(&mut c, id, ends, 1_000);
+}
+
+#[test]
+fn the_fee_account_is_owed_the_fee_and_the_dust() {
+    let (mut c, id, ends) = worked_example(Some((500, "fees.near")));
+    tally_all(&mut c, id, ends, 1_000);
+    assert_eq!(c.get_owed(id, "near:fees.near".into()).0, 200_000 + 5);
+}
+
+// Kickback comparison (see tests/kickback for the same attack on Kickback's own contract)
+
+/// Alice, Bob and Carol RSVP, and so does an account the organizer controls.
+fn kickback_setup() -> (Bail, EventId) {
+    let (mut c, id) = setup(10);
+    for (seed, who) in [(1, "alice"), (2, "bob"), (3, "carol"), (4, "puppet")] {
+        rsvp(&mut c, id, seed, &format!("near:{who}.near"));
+    }
+    (c, id)
+}
+
+fn kickback_checkin(c: &mut Bail, id: EventId, hearers: &[u8]) {
+    for (slot, code) in CODES.iter().enumerate() {
+        let (slot, at) = (slot as u8, OPENS + slot as u64 * WINDOW);
+        open_code(c, id, slot, at, code);
+        for &seed in hearers {
+            catch_heard(c, id, slot, seed, code, at);
+        }
+    }
+}
+
+#[test]
+#[should_panic(expected = "the dispute window is still open")]
+fn bail_has_no_early_finalize() {
+    let (mut c, id) = kickback_setup();
+    ctx("organizer.near", NOW, NearToken::from_near(0));
+    c.tally(id, 1_000);
+}
+
+#[test]
+fn the_kickback_attack_fails_against_bail() {
+    // There is no method that marks attendance. With an honest check-in the puppet is
+    // just one more attendee and gains nothing.
+    let (mut c, id) = kickback_setup();
+    kickback_checkin(&mut c, id, &[1, 2, 3, 4]);
+    for (slot, code) in CODES.iter().enumerate() {
+        reveal_code(&mut c, id, slot as u8, code, CLOSES);
+    }
+    let ends = c.get_event(id).unwrap().schedule.dispute_ends_at_ms;
+    let t = tally_all(&mut c, id, ends, 1_000);
+    assert_eq!(t.attended, 4);
+    assert!((1..=4).all(|seed| payout_of(&c, id, seed) == DEPOSIT));
+}
+
+#[test]
+fn hiding_the_codes_is_undone_by_the_arbiter() {
+    // A dishonest host shows the codes only to the puppet. The real attendees flag each
+    // slot, and the arbiter voids the event: everyone gets exactly their deposit back.
+    let (mut c, id) = kickback_setup();
+    kickback_checkin(&mut c, id, &[4]);
+    for slot in 0..3u8 {
+        for seed in 1..=3 {
+            flag(&mut c, id, slot, seed, CLOSES, sign(seed, &flag_message(id, slot)));
+        }
+    }
+    for (slot, code) in CODES.iter().enumerate() {
+        reveal_code(&mut c, id, slot as u8, code, CLOSES);
+    }
+    let e = c.get_event(id).unwrap();
+    assert!(e.slots.iter().all(|s| s.flags == 3));
+    void_as(&mut c, id, "arbiter.near", e.schedule.reveal_deadline_ms, NearToken::from_yoctonear(1));
+    let t = tally_all(&mut c, id, e.schedule.reveal_deadline_ms, 1_000);
+    assert!(t.everyone_refunded);
+    assert!((1..=4).all(|seed| payout_of(&c, id, seed) == DEPOSIT));
+}
+
+#[test]
+fn if_the_arbiter_does_nothing_hidden_codes_cost_honest_attendees() {
+    // The residual risk named in the threat model, shown rather than claimed: without
+    // the arbiter, a host who shows the codes only to their own account takes the pool.
+    let (mut c, id) = kickback_setup();
+    kickback_checkin(&mut c, id, &[4]);
+    for (slot, code) in CODES.iter().enumerate() {
+        reveal_code(&mut c, id, slot as u8, code, CLOSES);
+    }
+    let ends = c.get_event(id).unwrap().schedule.dispute_ends_at_ms;
+    tally_all(&mut c, id, ends, 1_000);
+    assert_eq!(payout_of(&c, id, 1), 0);
+    assert_eq!(payout_of(&c, id, 4), 4 * DEPOSIT);
 }
 
 #[test]

@@ -9,3 +9,8 @@ lto = true
 debug = false
 panic = "abort"
 overflow-checks = true
+
+# Tests sign and verify ed25519 thousands of times; optimized dependencies keep
+# the property test fast while the contract itself still builds in debug mode.
+[profile.dev.package."*"]
+opt-level = 3

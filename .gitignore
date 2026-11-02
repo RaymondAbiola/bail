@@ -2,3 +2,5 @@
 .env
 *.key
 .local/
+/tests/kickback/out
+/tests/kickback/cache

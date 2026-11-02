@@ -231,7 +231,9 @@ A = attended tickets      V = vouched tickets      F = forfeited tickets
 pool   = F * D
 fee    = pool * fee_bps / 10_000
 bonus  = (pool - fee) / A                (integer division)
-dust   = (pool - fee) - bonus * A        (less than A micro-units; to the fee account, or held if there is none)
+dust   = (pool - fee) - bonus * A        (less than A micro-units)
+fee + dust are owed to the fee account, which anyone can pay out with claim_owed;
+with no fee account the dust stays in the contract
 
 attended  receives  D + bonus
 vouched   receives  D
@@ -386,15 +388,18 @@ If the swap fails, 1Click refunds the attendee's own Solana address automaticall
 
 | Id | Invariant | Tests |
 |---|---|---|
-| I1 | Conservation: for every event, deposits = payouts + owed + fee + dust + held. | Property test over random event histories, and the sandbox lifecycle test. |
-| I2 | Principal protection: an attended or vouched ticket receives at least D. | Property test. |
-| I3 | No erasure: only a ticket's own signature can change its catches, and only inside the slot's window. Nothing turns an attended ticket into anything else. | Property test, plus unit tests for every method. |
-| I4 | Time lock: no tally before `dispute_ends_at`, and no schedule edits ever. | Unit tests for scheduling and tally. |
-| I5 | Refund bias: cancel, void, vouch and void slots never reduce what any depositor receives below D, and never pay anyone more than D unless they attended. | Property test. |
+| I1 | Conservation: every token an event takes in goes back out, as payouts, owed refunds or the fee, except dust held when there is no fee account. | `every_history_keeps_bails_promises` pays out random event histories (256 per `cargo test`, any number with `PROPTEST_CASES`; 1,000 passed before this was committed) and checks the totals to the micro-unit. `tally_reproduces_the_worked_example` checks section 6.7. |
+| I2 | Principal protection: an attended, vouched or refunded ticket receives at least D. | `every_history_keeps_bails_promises`. |
+| I3 | No erasure: only a ticket's own signature can change its catches, and only inside the slot's window. Nothing turns an attended ticket into anything else. | `every_history_keeps_bails_promises` checks every ticket's outcome against an independent model built from what it actually heard. Unit tests cover overwrites, replays and signatures. |
+| I4 | Time lock: no tally before `dispute_ends_at`, and no schedule edits ever. | Unit tests for scheduling and tally, including `bail_has_no_early_finalize`. |
+| I5 | Refund bias: cancel, void, vouch and void slots never reduce what any depositor receives below D, and never pay anyone more than D unless they attended. | `every_history_keeps_bails_promises` (cancelled and voided events refund exactly D, vouched tickets get exactly D) and `voiding_a_slot_never_disqualifies_anyone`. |
 | I6 | Liveness: after the deadlines, tally and payout succeed when called by any account. | Sandbox test with a stranger account as keeper. |
-| I7 | Bounded bounce: a transfer is bounced only when it names no usable payout address or underpays. | Unit tests for deposits. |
-| Q1 | Voiding a slot never disqualifies anyone. | Exhaustive test over every combination of slot outcomes for every K and R. |
-| K1 | The Kickback attack (organizer marks only their own accounts) succeeds against Kickback's own Solidity contract and fails against Bail. | Foundry test on Kickback's MIT-licensed source, copied in unchanged with its licence, plus the matching Bail test. |
+| I7 | Bounded bounce: a transfer is bounced only when it names no payable address or underpays. | Unit tests for deposits. |
+| Q1 | Voiding a slot never disqualifies anyone. | `voiding_a_slot_never_disqualifies_anyone`: every combination of slot outcomes for every K and R. |
+| K1 | The Kickback attack (organizer marks only their own accounts) succeeds against Kickback's own Solidity contract and fails against Bail. | `tests/kickback`: Foundry runs Kickback's MIT-licensed source, copied in unchanged with SHA-256 hashes, and the organizer takes all four deposits. `the_kickback_attack_fails_against_bail` and `hiding_the_codes_is_undone_by_the_arbiter` run the same scenario on Bail. |
+| R1 | The residual risk is real: without the arbiter, hidden codes cost honest attendees. | `if_the_arbiter_does_nothing_hidden_codes_cost_honest_attendees`, so the threat model's admission is shown, not just stated. |
+
+The property test was itself checked by planting bugs: giving vouched tickets a bonus, and making qualification one catch stricter. It caught both and shrank each to a minimal failing history; those histories are kept in `contracts/bail/proptest-regressions` and replayed on every run.
 
 [CLAIMS.md](../CLAIMS.md) maps every claim in the README to its source line or its test.
 
@@ -442,7 +447,9 @@ The hackathon rules allow testnet-only projects in every track (Q-010) and ask f
 ```
 bail/
   contracts/bail/          the contract (Rust, near-sdk 5.30)
-    src/                   lib.rs, event.rs, deposit.rs, checkin.rs, recourse.rs, settle.rs, payout.rs, views.rs
+    src/                   lib.rs, event.rs, deposit.rs, tickets.rs, cancel.rs, checkin.rs, reveal.rs,
+                           recourse.rs, settle.rs, payout.rs
+    src/tests.rs           unit tests; src/tests/proptests.rs, the random-history property test
     tests/                 sandbox integration tests on the compiled wasm
   tests/kickback/          Foundry project: Kickback's own contract (MIT, unchanged) and the attack test
   packages/sdk/            TypeScript SDK and shared test vectors

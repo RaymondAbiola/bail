@@ -42,8 +42,8 @@ What is being built, in order. Each stage builds on the one before it. The desig
 
 ## 4. Proof (in progress)
 
-- [ ] Property tests for conservation, principal protection, no erasure and refund bias
-- [ ] Kickback's own contract in a Foundry test, with its organizer taking every deposit, and the same attack failing against Bail
+- [x] Property tests for conservation, principal protection, no erasure and refund bias, over random event histories checked against an independent model
+- [x] Kickback's own contract in a Foundry test, with its organizer taking every deposit, and the same attack failing against Bail
 - [ ] A whole event lifecycle on the compiled contract in a local NEAR sandbox
 - [ ] Reproducible build and continuous integration
 
