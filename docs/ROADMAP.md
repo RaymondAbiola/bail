@@ -2,13 +2,13 @@
 
 What is being built, in order. Each stage builds on the one before it. The design behind every item is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-![Bail roadmap in two rows. Build the contract: Foundation (done), Check-in (in progress), Recourse and settlement, Proof. Ship it: Testnet launch, Apps, Any chain, First real event.](images/roadmap.svg)
+![Bail roadmap in two rows. Build the contract: Foundation (done), Check-in (done), Recourse and settlement (in progress), Proof. Ship it: Testnet launch, Apps, Any chain, First real event.](images/roadmap.svg)
 
 | Stage | What it delivers | Status |
 |---|---|---|
 | 1. Foundation | Events and deposit RSVPs | Done |
-| 2. Check-in | Live codes that prove who was there | In progress |
-| 3. Recourse and settlement | Fair outcomes, payouts and reliability records | Next |
+| 2. Check-in | Live codes that prove who was there | Done |
+| 3. Recourse and settlement | Fair outcomes, payouts and reliability records | In progress |
 | 4. Proof | Tests that back every promise, including the Kickback comparison | Planned |
 | 5. Testnet launch | A locked, verifiable contract on NEAR testnet | Planned |
 | 6. Apps | SDK, relayer, host console and web app | Planned |
@@ -21,16 +21,16 @@ What is being built, in order. Each stage builds on the one before it. The desig
 - [x] RSVPs by deposit through `ft_transfer_call` with an RSVP note, the same path 1Click uses
 - [x] Only transfers that can't be returned any other way are bounced; late, full and duplicate deposits are kept as owed to the attendee
 
-## 2. Check-in (in progress)
+## 2. Check-in (done)
 
 - [x] Whole event schedule fixed at creation: cancel cutoff, check-in window, code slots, reveal and dispute periods, and a required arbiter
 - [x] Free cancellation before the cutoff, and organizer cancellation only before check-in
 - [x] Live code slots that open one at a time, each committed onchain as it opens
-- [ ] Catching codes with proofs bound to each attendee's ticket key, with typos fixable inside the window
+- [x] Catching codes with proofs bound to each attendee's ticket key, with typos fixable inside the window
 - [x] Flags for slots where no code was shown
-- [ ] Reveals that anyone can make, and a qualification rule where a missing slot can only lower the bar
+- [x] Reveals that anyone can make, and a qualification rule where a missing slot can only lower the bar
 
-## 3. Recourse and settlement
+## 3. Recourse and settlement (in progress)
 
 - [ ] Vouching for attendees whose phone died
 - [ ] A required arbiter, never the organizer, who can void an event and can only refund

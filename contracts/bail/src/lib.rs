@@ -4,14 +4,16 @@ mod cancel;
 mod checkin;
 mod deposit;
 mod event;
+mod reveal;
 mod tickets;
 #[cfg(test)]
 mod tests;
 
 pub use event::{
-    CheckinConfig, Config, Event, NewEvent, Schedule, Slot, Status, MAX_CAPACITY, MAX_FEE_BPS,
-    MAX_SLOTS, MIN_WINDOW_FLOOR_MS, STORAGE_PER_EVENT, STORAGE_PER_SEAT,
+    CheckinConfig, Config, Event, NewEvent, Schedule, Slot, Status, MAX_CAPACITY, MAX_CODE_LEN,
+    MAX_FEE_BPS, MAX_SLOTS, MIN_WINDOW_FLOOR_MS, STORAGE_PER_EVENT, STORAGE_PER_SEAT,
 };
+pub use reveal::Standing;
 pub use tickets::{Catch, Ticket};
 
 use near_sdk::serde_json::{json, Value};

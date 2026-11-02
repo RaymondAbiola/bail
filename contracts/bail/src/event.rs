@@ -6,6 +6,7 @@ use crate::{emit, Bail, BailExt, EventId};
 
 pub const MAX_CAPACITY: u32 = 1_000;
 pub const MAX_SLOTS: u8 = 5;
+pub const MAX_CODE_LEN: usize = 64;
 pub const MAX_FEE_BPS: u16 = 1_000;
 pub const MIN_WINDOW_FLOOR_MS: u64 = 60_000;
 pub const STORAGE_PER_EVENT: NearToken = NearToken::from_millinear(20);
@@ -66,6 +67,8 @@ pub struct Slot {
     pub opened_at_ms: u64,
     pub commitment: Base64VecU8,
     pub flags: u32,
+    /// The normalized code, once someone has revealed it.
+    pub revealed: Option<String>,
 }
 
 #[near(serializers = [borsh, json])]

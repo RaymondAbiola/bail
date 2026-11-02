@@ -6,6 +6,7 @@ use near_sdk::test_utils::VMContextBuilder;
 use near_sdk::{env, testing_env, AccountId, CurveType, NearToken, PromiseOrValue, PublicKey};
 
 use crate::event::seat_storage_cost;
+use crate::reveal::{catch_proof, code_commitment, normalize_code, qualifies, SlotState};
 use crate::*;
 
 const NS_PER_MS: u64 = 1_000_000;
@@ -163,6 +164,33 @@ fn catch_code(c: &mut Bail, event_id: EventId, slot: u8, attempt: u32, seed: u8,
 fn flag(c: &mut Bail, event_id: EventId, slot: u8, seed: u8, at_ms: u64, signature: Base64VecU8) {
     ctx("relayer.near", at_ms, NearToken::from_near(0));
     c.flag_slot(event_id, slot, ticket(seed), signature);
+}
+
+const CODE: &str = "tiger maple seven ocean lamp";
+
+fn key_bytes(seed: u8) -> [u8; 32] {
+    signer(seed).verifying_key().to_bytes()
+}
+
+fn open_code(c: &mut Bail, event_id: EventId, slot: u8, at_ms: u64, code: &str) {
+    ctx("organizer.near", at_ms, NearToken::from_near(0));
+    let commitment = code_commitment(event_id, slot, code);
+    c.open_slot(event_id, slot, Base64VecU8(commitment.to_vec()));
+}
+
+fn catch_heard(c: &mut Bail, event_id: EventId, slot: u8, seed: u8, heard: &str, at_ms: u64) {
+    let p = Base64VecU8(catch_proof(event_id, slot, heard, &key_bytes(seed)).to_vec());
+    catch_code(c, event_id, slot, 1, seed, p, at_ms);
+}
+
+fn reveal_code(c: &mut Bail, event_id: EventId, slot: u8, code: &str, at_ms: u64) {
+    ctx("anyone.near", at_ms, NearToken::from_near(0));
+    c.reveal(event_id, slot, code.to_string());
+}
+
+fn standing_at(c: &Bail, event_id: EventId, seed: u8, at_ms: u64) -> Standing {
+    ctx("anyone.near", at_ms, NearToken::from_near(0));
+    c.standing(event_id, ticket(seed)).unwrap()
 }
 
 fn checkin_setup() -> (Bail, EventId) {
@@ -853,14 +881,192 @@ fn a_flag_needs_the_tickets_own_signature() {
     flag(&mut c, id, 0, 1, OPENS, sign(2, &flag_message(id, 0)));
 }
 
+// Reveal and qualification
+
+#[test]
+fn hashes_match_the_independent_test_vectors() {
+    // Computed separately in Python from the field layout in ARCHITECTURE.md section 6.10.
+    ctx("anyone.near", NOW, NearToken::from_near(0));
+    assert_eq!(
+        to_hex(&code_commitment(7, 2, CODE)),
+        "7b5c424e3d0bd348bd83951b83df2094a04cb91ba3b0c1e312fcaca412ab8e29"
+    );
+    assert_eq!(
+        to_hex(&catch_proof(7, 2, CODE, &[0x11; 32])),
+        "e0150c423d6ff2364b228af39e5130332af485bebb8c281ba1780a8cfb5d2ca8"
+    );
+}
+
+#[test]
+fn codes_are_normalized() {
+    assert_eq!(normalize_code("  Tiger  MAPLE\tseven ocean LAMP "), CODE);
+}
+
+#[test]
+fn a_revealed_code_verifies_correct_catches() {
+    let (mut c, id) = checkin_setup();
+    open_code(&mut c, id, 0, OPENS, CODE);
+    catch_heard(&mut c, id, 0, 1, CODE, OPENS);
+    catch_heard(&mut c, id, 0, 2, "tiger maple seven ocean lump", OPENS);
+    reveal_code(&mut c, id, 0, CODE, OPENS + WINDOW);
+    assert_eq!(c.get_event(id).unwrap().slots[0].revealed.as_deref(), Some(CODE));
+    assert_eq!(standing_at(&c, id, 1, OPENS + WINDOW).verified_catches, 1);
+    assert_eq!(standing_at(&c, id, 2, OPENS + WINDOW).verified_catches, 0);
+}
+
+#[test]
+fn a_copied_proof_does_not_count() {
+    let (mut c, id) = checkin_setup();
+    open_code(&mut c, id, 0, OPENS, CODE);
+    let ones_proof = Base64VecU8(catch_proof(id, 0, CODE, &key_bytes(1)).to_vec());
+    catch_code(&mut c, id, 0, 1, 1, ones_proof.clone(), OPENS);
+    catch_code(&mut c, id, 0, 1, 2, ones_proof, OPENS);
+    reveal_code(&mut c, id, 0, CODE, OPENS + WINDOW);
+    assert_eq!(standing_at(&c, id, 1, OPENS + WINDOW).verified_catches, 1);
+    assert_eq!(standing_at(&c, id, 2, OPENS + WINDOW).verified_catches, 0);
+}
+
+#[test]
+fn reveals_accept_any_spacing_and_case() {
+    let (mut c, id) = checkin_setup();
+    open_code(&mut c, id, 0, OPENS, CODE);
+    reveal_code(&mut c, id, 0, "  TIGER maple  Seven ocean LAMP", OPENS + WINDOW);
+    assert_eq!(c.get_event(id).unwrap().slots[0].revealed.as_deref(), Some(CODE));
+}
+
+#[test]
+#[should_panic(expected = "the code window is still open")]
+fn a_code_cannot_be_revealed_inside_its_window() {
+    let (mut c, id) = checkin_setup();
+    open_code(&mut c, id, 0, OPENS, CODE);
+    reveal_code(&mut c, id, 0, CODE, OPENS + WINDOW - 1);
+}
+
+#[test]
+#[should_panic(expected = "code does not match the commitment")]
+fn a_wrong_code_cannot_be_revealed() {
+    let (mut c, id) = checkin_setup();
+    open_code(&mut c, id, 0, OPENS, CODE);
+    reveal_code(&mut c, id, 0, "tiger maple seven ocean lump", OPENS + WINDOW);
+}
+
+#[test]
+#[should_panic(expected = "the reveal deadline has passed")]
+fn reveals_close_at_the_deadline() {
+    let (mut c, id) = checkin_setup();
+    open_code(&mut c, id, 0, OPENS, CODE);
+    let deadline = c.get_event(id).unwrap().schedule.reveal_deadline_ms;
+    reveal_code(&mut c, id, 0, CODE, deadline);
+}
+
+#[test]
+#[should_panic(expected = "already revealed")]
+fn a_code_is_revealed_once() {
+    let (mut c, id) = checkin_setup();
+    open_code(&mut c, id, 0, OPENS, CODE);
+    reveal_code(&mut c, id, 0, CODE, OPENS + WINDOW);
+    reveal_code(&mut c, id, 0, CODE, OPENS + WINDOW + 1);
+}
+
+#[test]
+#[should_panic(expected = "code must be 1 to 64 bytes")]
+fn an_empty_code_cannot_be_revealed() {
+    let (mut c, id) = checkin_setup();
+    open_code(&mut c, id, 0, OPENS, CODE);
+    reveal_code(&mut c, id, 0, "   ", OPENS + WINDOW);
+}
+
+#[test]
+fn attending_takes_r_of_k_verified_catches() {
+    let (mut c, id) = checkin_setup();
+    let codes = ["alpha one", "bravo two", "charlie three"];
+    for (slot, code) in codes.iter().enumerate() {
+        let at = OPENS + slot as u64 * WINDOW;
+        open_code(&mut c, id, slot as u8, at, code);
+        catch_heard(&mut c, id, slot as u8, 2, if slot == 0 { code } else { "misheard" }, at);
+        if slot < 2 {
+            catch_heard(&mut c, id, slot as u8, 1, code, at);
+        }
+    }
+    for (slot, code) in codes.iter().enumerate() {
+        reveal_code(&mut c, id, slot as u8, code, CLOSES);
+    }
+    let deadline = c.get_event(id).unwrap().schedule.reveal_deadline_ms;
+    let one = standing_at(&c, id, 1, deadline);
+    let two = standing_at(&c, id, 2, deadline);
+    assert!(one.attended && one.is_final);
+    assert_eq!((one.verified_catches, one.catches_needed), (2, 2));
+    assert!(!two.attended && two.is_final);
+    assert_eq!(two.verified_catches, 1);
+}
+
+#[test]
+fn a_host_who_never_reveals_leaves_everyone_qualified() {
+    let (mut c, id) = checkin_setup();
+    for slot in 0..3 {
+        open_code(&mut c, id, slot, OPENS + u64::from(slot) * WINDOW, CODE);
+    }
+    let deadline = c.get_event(id).unwrap().schedule.reveal_deadline_ms;
+    assert!(!standing_at(&c, id, 2, deadline - 1).attended);
+    let two = standing_at(&c, id, 2, deadline);
+    assert!(two.attended && two.is_final);
+    assert_eq!((two.void_slots, two.catches_needed), (3, 0));
+}
+
+#[test]
+fn slots_never_opened_go_void_when_checkin_closes() {
+    let (mut c, id) = checkin_setup();
+    open_code(&mut c, id, 0, OPENS, CODE);
+    catch_heard(&mut c, id, 0, 1, CODE, OPENS);
+    reveal_code(&mut c, id, 0, CODE, OPENS + WINDOW);
+
+    let before = standing_at(&c, id, 2, CLOSES - 1);
+    assert_eq!((before.void_slots, before.attended), (0, false));
+
+    let after = standing_at(&c, id, 2, CLOSES);
+    assert_eq!((after.void_slots, after.catches_needed), (2, 0));
+    assert!(after.attended && !after.is_final);
+}
+
+#[test]
+fn voiding_a_slot_never_disqualifies_anyone() {
+    // Every combination of slot outcomes for every K and R: turning any one revealed
+    // slot void must never flip a ticket from attended to not attended.
+    let outcomes = [
+        SlotState::Void,
+        SlotState::Revealed { caught: true },
+        SlotState::Revealed { caught: false },
+    ];
+    let mut checked = 0;
+    for k in 1..=MAX_SLOTS {
+        for r in 1..=k {
+            for n in 0..3usize.pow(u32::from(k)) {
+                let states: Vec<SlotState> =
+                    (0..k).map(|i| outcomes[n / 3usize.pow(u32::from(i)) % 3]).collect();
+                let before = qualifies(r, &states);
+                for i in 0..usize::from(k) {
+                    if states[i] == SlotState::Void {
+                        continue;
+                    }
+                    let mut voided = states.clone();
+                    voided[i] = SlotState::Void;
+                    assert!(qualifies(r, &voided) || !before, "k={k} r={r} {states:?} slot {i}");
+                    checked += 1;
+                }
+            }
+        }
+        assert!(qualifies(1, &vec![SlotState::Void; usize::from(k)]));
+    }
+    assert!(checked > 1_000);
+}
+
 // Storage
 
 /// Bytes each seat will still need for a record that a later stage adds: reputation
 /// (key prefix, payout address, four counters, record overhead).
 const RESERVED_PER_SEAT: u64 = 1 + 4 + MAX_PAYOUT_LEN as u64 + 16 + 40;
-/// Bytes each event will still need: a revealed code of up to 64 bytes per slot, and
-/// the settlement totals.
-const RESERVED_PER_EVENT: u64 = 5 * (1 + 4 + 64) + 8 * 16;
+/// Bytes each event will still need for the settlement totals that a later stage adds.
+const RESERVED_PER_EVENT: u64 = 8 * 16;
 
 #[test]
 fn prepaid_storage_covers_a_full_event() {
@@ -882,17 +1088,22 @@ fn prepaid_storage_covers_a_full_event() {
     for i in 0..capacity {
         send(&mut c, &token, RSVP_CLOSES, DEPOSIT, msg(id, 200, &payout(100 + i)));
     }
+    let code = |slot: u8| format!("{slot}{}", "a".repeat(MAX_CODE_LEN - 1));
     for slot in 0..MAX_SLOTS {
         let at = OPENS + u64::from(slot) * WINDOW;
-        open(&mut c, id, slot, at);
+        open_code(&mut c, id, slot, at, &code(slot));
         for i in 0..capacity {
             catch_code(&mut c, id, slot, u32::MAX, i as u8, proof(slot), at);
             flag(&mut c, id, slot, i as u8, at, sign(i as u8, &flag_message(id, slot)));
         }
     }
+    let closes = OPENS + u64::from(MAX_SLOTS) * WINDOW;
+    for slot in 0..MAX_SLOTS {
+        reveal_code(&mut c, id, slot, &code(slot), closes);
+    }
     let e = c.get_event(id).unwrap();
     assert_eq!((e.registered, e.owed_records), (capacity, capacity));
-    assert_eq!(e.slots.len(), usize::from(MAX_SLOTS));
+    assert!(e.slots.iter().all(|s| s.revealed.as_ref().is_some_and(|r| r.len() == MAX_CODE_LEN)));
 
     c.events.flush();
     c.tickets.flush();

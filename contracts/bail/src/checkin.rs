@@ -41,6 +41,7 @@ impl Bail {
             opened_at_ms: now,
             commitment,
             flags: 0,
+            revealed: None,
         });
         emit(
             "slot_opened",
