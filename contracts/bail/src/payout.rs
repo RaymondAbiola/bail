@@ -5,7 +5,9 @@ use near_sdk::{env, near, require, AccountId, Gas, NearToken, Promise, PromiseEr
 
 use crate::event::{seat_storage_cost, Config, STORAGE_PER_EVENT};
 use crate::settle::{payout_amount, TallyStage};
-use crate::{emit, ticket_bytes, ticket_public_key, Bail, BailExt, EventId, TicketKey, MAX_PAYOUT_LEN};
+use crate::{
+    emit, ticket_bytes, ticket_public_key, Bail, BailExt, EventId, TicketKey, MAX_PAYOUT_LEN,
+};
 
 const GAS_FT_TRANSFER: Gas = Gas::from_tgas(10);
 const GAS_FT_TRANSFER_CALL: Gas = Gas::from_tgas(60);
@@ -76,7 +78,8 @@ impl Bail {
             .remove(&(event_id, payout_to.clone()))
             .expect("nothing owed");
         let token = self.events[&event_id].token.clone();
-        self.send(&token, &payout_to, amount, event_id, None).detach();
+        self.send(&token, &payout_to, amount, event_id, None)
+            .detach();
     }
 
     /// Reads the token's answer. A failed transfer is rolled back: the ticket can be paid
@@ -110,7 +113,10 @@ impl Bail {
         }
         // A whole ticket payout that failed is retried as a ticket. Anything else, including
         // a ticket already removed by close_event, becomes an owed record.
-        let key = ticket_key.as_ref().and_then(ticket_bytes).filter(|_| returned == amount.0);
+        let key = ticket_key
+            .as_ref()
+            .and_then(ticket_bytes)
+            .filter(|_| returned == amount.0);
         let rolled_back = match key.and_then(|key| self.tickets.get_mut(&(event_id, key))) {
             Some(ticket) => {
                 ticket.paid = false;
@@ -136,7 +142,10 @@ impl Bail {
         let event = self.events.get(&event_id).expect("no such event");
         require!(!event.closed, "already closed");
         let tally = done_tally(event.tally.as_ref()).clone();
-        require!(tally.paid_cursor >= event.registered, "payouts are not finished");
+        require!(
+            tally.paid_cursor >= event.registered,
+            "payouts are not finished"
+        );
         let deposit = event.deposit.0;
 
         for _ in 0..limit.min(event.registered) {
@@ -160,7 +169,8 @@ impl Bail {
         event.closed = true;
         let keep_bytes = u128::from(event.owed_total) * OWED_RECORD_BYTES
             + u128::from(tally.new_records) * REPUTATION_RECORD_BYTES;
-        let keep = STORAGE_PER_EVENT.saturating_add(env::storage_byte_cost().saturating_mul(keep_bytes));
+        let keep =
+            STORAGE_PER_EVENT.saturating_add(env::storage_byte_cost().saturating_mul(keep_bytes));
         let refund = seat_storage_cost(event.capacity).saturating_sub(keep);
         let organizer = event.organizer.clone();
         emit(
@@ -188,7 +198,13 @@ impl Bail {
             return None;
         }
         let (token, payout_to) = (event.token.clone(), ticket.payout_to.clone());
-        Some(self.send(&token, &payout_to, amount, event_id, Some(ticket_public_key(&key))))
+        Some(self.send(
+            &token,
+            &payout_to,
+            amount,
+            event_id,
+            Some(ticket_public_key(&key)),
+        ))
     }
 
     fn send(
@@ -225,7 +241,13 @@ impl Bail {
         transfer.then(
             Self::ext(env::current_account_id())
                 .with_static_gas(GAS_CALLBACK)
-                .on_transfer(event_id, ticket_key, payout_to.to_string(), U128(amount), is_call),
+                .on_transfer(
+                    event_id,
+                    ticket_key,
+                    payout_to.to_string(),
+                    U128(amount),
+                    is_call,
+                ),
         )
     }
 }

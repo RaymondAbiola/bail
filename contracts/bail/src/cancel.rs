@@ -9,7 +9,12 @@ use crate::{emit, signed_message, ticket_bytes, verify_ticket, Bail, BailExt, Ev
 impl Bail {
     /// Anyone can submit this (usually the relayer), but only a signature from the
     /// ticket key counts, and the refund always goes to the address fixed at RSVP.
-    pub fn cancel_rsvp(&mut self, event_id: EventId, ticket_key: PublicKey, signature: Base64VecU8) {
+    pub fn cancel_rsvp(
+        &mut self,
+        event_id: EventId,
+        ticket_key: PublicKey,
+        signature: Base64VecU8,
+    ) {
         let event = self.events.get(&event_id).expect("no such event");
         require!(event.status == Status::Active, "event is not active");
         require!(
@@ -19,9 +24,15 @@ impl Bail {
         let deposit = event.deposit.0;
 
         let ticket = ticket_bytes(&ticket_key).expect("ticket key must be ed25519");
-        require!(self.tickets.contains_key(&(event_id, ticket)), "no such ticket");
+        require!(
+            self.tickets.contains_key(&(event_id, ticket)),
+            "no such ticket"
+        );
         let message = signed_message("cancel", event_id, &[]);
-        require!(verify_ticket(&ticket, &message, &signature.0), "invalid signature");
+        require!(
+            verify_ticket(&ticket, &message, &signature.0),
+            "invalid signature"
+        );
 
         let removed = self.remove_ticket(event_id, ticket);
         // The freed ticket record pays for the refund record, so it skips the owed cap.

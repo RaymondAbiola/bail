@@ -8,9 +8,9 @@ mod payout;
 mod recourse;
 mod reveal;
 mod settle;
-mod tickets;
 #[cfg(test)]
 mod tests;
+mod tickets;
 
 pub use event::{
     CheckinConfig, Config, Event, NewEvent, Schedule, Slot, Status, MAX_CAPACITY, MAX_CODE_LEN,

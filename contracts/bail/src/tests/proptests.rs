@@ -73,7 +73,10 @@ fn history() -> impl Strategy<Value = History> {
         prop::collection::vec(prop::bool::weighted(0.15), n),
         0u8..=3,
         prop::collection::vec(prop::collection::vec(heard(), usize::from(MAX_SLOTS)), n),
-        prop::collection::vec(prop_oneof![6 => Just(0u8), 2 => Just(1u8), 3 => Just(2u8), 1 => Just(3u8)], n),
+        prop::collection::vec(
+            prop_oneof![6 => Just(0u8), 2 => Just(1u8), 3 => Just(2u8), 1 => Just(3u8)],
+            n,
+        ),
     );
     let host = (
         prop::collection::vec(prop::bool::weighted(0.85), usize::from(MAX_SLOTS)),
@@ -148,7 +151,11 @@ fn run(h: &History) -> Result<(), TestCaseError> {
     });
     let capacity = u32::from(h.rsvps) + h.spare_seats;
     let mut event = new_event(capacity);
-    event.checkin = CheckinConfig { slots: h.slots, required: h.required, window_ms: WINDOW };
+    event.checkin = CheckinConfig {
+        slots: h.slots,
+        required: h.required,
+        window_ms: WINDOW,
+    };
     let closes = OPENS + u64::from(h.slots) * WINDOW;
     event.checkin_closes_at_ms = closes;
     let id = create(&mut c, event);
@@ -157,18 +164,35 @@ fn run(h: &History) -> Result<(), TestCaseError> {
 
     for t in 0..usize::from(h.rsvps) {
         let amount = DEPOSIT + u128::from(h.overpay[t]);
-        prop_assert_eq!(send(&mut c, USDC, NOW, amount, msg(id, seed(t), &payee(t))), 0);
+        prop_assert_eq!(
+            send(&mut c, USDC, NOW, amount, msg(id, seed(t), &payee(t))),
+            0
+        );
         received += amount;
     }
-    let active: Vec<usize> = (0..usize::from(h.rsvps)).filter(|&t| !h.cancels[t]).collect();
+    let active: Vec<usize> = (0..usize::from(h.rsvps))
+        .filter(|&t| !h.cancels[t])
+        .collect();
     for t in (0..usize::from(h.rsvps)).filter(|&t| h.cancels[t]) {
         cancel(&mut c, id, seed(t), NOW, sign(seed(t), &cancel_message(id)));
     }
     if h.ending == Ending::Cancelled {
-        cancel_event_as(&mut c, id, "organizer.near", NOW, NearToken::from_yoctonear(1));
+        cancel_event_as(
+            &mut c,
+            id,
+            "organizer.near",
+            NOW,
+            NearToken::from_yoctonear(1),
+        );
     }
     for i in 0..h.late {
-        let unused = send(&mut c, USDC, RSVP_CLOSES, DEPOSIT, msg(id, 100 + i, &late_payer(i)));
+        let unused = send(
+            &mut c,
+            USDC,
+            RSVP_CLOSES,
+            DEPOSIT,
+            msg(id, 100 + i, &late_payer(i)),
+        );
         received += DEPOSIT - unused;
     }
 
@@ -217,21 +241,36 @@ fn run(h: &History) -> Result<(), TestCaseError> {
             }
         }
         if h.ending == Ending::Voided {
-            void_as(&mut c, id, "arbiter.near", deadline, NearToken::from_yoctonear(1));
+            void_as(
+                &mut c,
+                id,
+                "arbiter.near",
+                deadline,
+                NearToken::from_yoctonear(1),
+            );
         }
     }
 
-    let settle_at = if h.ending == Ending::Cancelled { NOW } else { schedule.dispute_ends_at_ms };
+    let settle_at = if h.ending == Ending::Cancelled {
+        NOW
+    } else {
+        schedule.dispute_ends_at_ms
+    };
     let tally = tally_all(&mut c, id, settle_at, h.tally_page);
 
     // The model: who attended, from what each ticket actually heard.
-    let unrevealed = (0..h.opened).filter(|&s| !h.revealed[usize::from(s)]).count() as u8;
+    let unrevealed = (0..h.opened)
+        .filter(|&s| !h.revealed[usize::from(s)])
+        .count() as u8;
     let void = (h.slots - h.opened) + unrevealed;
     let bar = h.required.saturating_sub(void);
     let attended = |t: usize| {
         let right = (0..h.opened).filter(|&s| {
             h.revealed[usize::from(s)]
-                && matches!(h.heard[t][usize::from(s)], Heard::Right | Heard::TypoThenRight)
+                && matches!(
+                    h.heard[t][usize::from(s)],
+                    Heard::Right | Heard::TypoThenRight
+                )
         });
         right.count() >= usize::from(bar)
     };
@@ -305,13 +344,19 @@ fn run(h: &History) -> Result<(), TestCaseError> {
             prop_assert_eq!(c.get_owed(id, address).0, 0);
         }
     }
-    let held = if h.fee_bps == 0 && !refund_all { tally.dust.0 } else { 0 };
+    let held = if h.fee_bps == 0 && !refund_all {
+        tally.dust.0
+    } else {
+        0
+    };
     prop_assert_eq!(paid_out + held, received);
 
     // Closing frees every ticket and never refunds more storage than was prepaid.
     let refunds = close_all(&mut c, id, settle_at, h.pay_page);
     prop_assert!(c.get_event(id).unwrap().closed);
-    prop_assert!(active.iter().all(|&t| c.get_ticket(id, ticket(seed(t))).is_none()));
+    prop_assert!(active
+        .iter()
+        .all(|&t| c.get_ticket(id, ticket(seed(t))).is_none()));
     let refunded: u128 = refunds.iter().map(|(_, n)| n.as_yoctonear()).sum();
     prop_assert!(refunded <= seat_storage_cost(capacity).as_yoctonear());
     Ok(())

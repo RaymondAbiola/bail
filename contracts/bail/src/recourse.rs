@@ -50,11 +50,17 @@ impl Bail {
 
         let required = event.checkin.required;
         require!(
-            qualifies(required, &slot_states(event_id, event, &voucher, voucher_ticket, now)),
+            qualifies(
+                required,
+                &slot_states(event_id, event, &voucher, voucher_ticket, now)
+            ),
             "only attendees can vouch"
         );
         require!(
-            !qualifies(required, &slot_states(event_id, event, &target, target_ticket, now)),
+            !qualifies(
+                required,
+                &slot_states(event_id, event, &target, target_ticket, now)
+            ),
             "the target already attended"
         );
 
@@ -62,9 +68,15 @@ impl Bail {
         // caller formatted the key.
         let target_key = ticket_public_key(&target);
         let message = signed_message("vouch", event_id, &[&target_key.to_string()]);
-        require!(verify_ticket(&voucher, &message, &signature.0), "invalid signature");
+        require!(
+            verify_ticket(&voucher, &message, &signature.0),
+            "invalid signature"
+        );
 
-        self.tickets.get_mut(&(event_id, voucher)).unwrap().vouched_for = Some(target_key.clone());
+        self.tickets
+            .get_mut(&(event_id, voucher))
+            .unwrap()
+            .vouched_for = Some(target_key.clone());
         let target_ticket = self.tickets.get_mut(&(event_id, target)).unwrap();
         target_ticket.vouched_by += 1;
         emit(

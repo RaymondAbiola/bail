@@ -101,8 +101,7 @@ impl Bail {
             }
             tally.cursor = end;
             if end == registered {
-                let measured = !refund_all
-                    && required > void_slots(&self.events[&event_id], now);
+                let measured = !refund_all && required > void_slots(&self.events[&event_id], now);
                 self.fix_split(&mut tally, deposit, measured);
                 // The fee and the rounding dust become owed to the fee account, so every
                 // token the event took in has a way out. With no fee account the dust,
@@ -137,7 +136,10 @@ impl Bail {
 
         let stage = tally.stage;
         if stage == TallyStage::Done {
-            emit("event_tallied", json!({ "event_id": event_id, "tally": tally }));
+            emit(
+                "event_tallied",
+                json!({ "event_id": event_id, "tally": tally }),
+            );
         }
         self.events.get_mut(&event_id).unwrap().tally = Some(tally);
         stage
@@ -150,7 +152,10 @@ impl Bail {
     /// What a ticket is paid, once its event's split is fixed.
     pub fn get_payout(&self, event_id: EventId, ticket_key: PublicKey) -> Option<U128> {
         let event = self.events.get(&event_id)?;
-        let tally = event.tally.as_ref().filter(|t| t.stage != TallyStage::Classifying)?;
+        let tally = event
+            .tally
+            .as_ref()
+            .filter(|t| t.stage != TallyStage::Classifying)?;
         let ticket = self.tickets.get(&(event_id, ticket_bytes(&ticket_key)?))?;
         Some(U128(payout_amount(ticket.outcome?, tally, event.deposit.0)))
     }

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  contract:
+    name: Contract
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Unit tests and 1,000 random event histories
+        run: cargo test -p bail --lib
+        env:
+          PROPTEST_CASES: "1000"
+
+      # Without Ledger support, which would need the libudev system library.
+      - name: Install cargo-near
+        run: cargo install --locked cargo-near --no-default-features
+
+      - name: Sandbox tests on the compiled contract (cargo-near compiles it)
+        run: cargo test -p bail --test sandbox
+
+      - name: Build the contract wasm
+        run: cargo near build non-reproducible-wasm --manifest-path contracts/bail/Cargo.toml
+
+  kickback:
+    name: Kickback comparison
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Copied files match upstream byte for byte
+        working-directory: tests/kickback/src
+        run: sha256sum -c ../SHA256SUMS
+
+      - name: The organizer takes every deposit on Kickback
+        working-directory: tests/kickback
+        run: forge test -vv

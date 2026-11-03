@@ -127,7 +127,10 @@ impl NewEvent {
             self.capacity > 0 && self.capacity <= MAX_CAPACITY,
             "capacity out of range"
         );
-        require!(self.arbiter != organizer, "the arbiter can't be the organizer");
+        require!(
+            self.arbiter != organizer,
+            "the arbiter can't be the organizer"
+        );
 
         let c = self.checkin;
         require!(
@@ -140,7 +143,10 @@ impl NewEvent {
         );
         require!(c.window_ms >= config.min_window_ms, "code window too short");
 
-        require!(now_ms < self.rsvp_closes_at_ms, "RSVP must close in the future");
+        require!(
+            now_ms < self.rsvp_closes_at_ms,
+            "RSVP must close in the future"
+        );
         require!(
             self.cancel_cutoff_ms <= self.rsvp_closes_at_ms,
             "cancel cutoff must not be after RSVP closes"
@@ -159,8 +165,14 @@ impl NewEvent {
             needed.is_some_and(|n| n <= self.checkin_closes_at_ms - self.checkin_opens_at_ms),
             "check-in window too short for its code slots"
         );
-        require!(self.reveal_ms >= config.min_reveal_ms, "reveal period too short");
-        require!(self.dispute_ms >= config.min_dispute_ms, "dispute period too short");
+        require!(
+            self.reveal_ms >= config.min_reveal_ms,
+            "reveal period too short"
+        );
+        require!(
+            self.dispute_ms >= config.min_dispute_ms,
+            "dispute period too short"
+        );
 
         let reveal_deadline_ms = self.checkin_closes_at_ms.checked_add(self.reveal_ms);
         let dispute_ends_at_ms = reveal_deadline_ms.and_then(|r| r.checked_add(self.dispute_ms));
@@ -210,7 +222,10 @@ impl Bail {
         let cost = seat_storage_cost(event.capacity.min(MAX_CAPACITY));
         let attached = env::attached_deposit();
         let event = event.into_event(organizer.clone(), env::block_timestamp_ms(), &self.config);
-        require!(attached >= cost, format!("attach at least {cost} for storage"));
+        require!(
+            attached >= cost,
+            format!("attach at least {cost} for storage")
+        );
 
         let id = self.next_event_id;
         self.next_event_id += 1;

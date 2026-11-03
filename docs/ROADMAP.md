@@ -2,14 +2,14 @@
 
 What is being built, in order. Each stage builds on the one before it. The design behind every item is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-![Bail roadmap in two rows. Build the contract: Foundation (done), Check-in (done), Recourse and settlement (done), Proof (in progress). Ship it: Testnet launch, Apps, Any chain, First real event.](images/roadmap.svg)
+![Bail roadmap in two rows. Build the contract: Foundation (done), Check-in (done), Recourse and settlement (done), Proof (done). Ship it: Testnet launch, Apps, Any chain, First real event.](images/roadmap.svg)
 
 | Stage | What it delivers | Status |
 |---|---|---|
 | 1. Foundation | Events and deposit RSVPs | Done |
 | 2. Check-in | Live codes that prove who was there | Done |
 | 3. Recourse and settlement | Fair outcomes, payouts and reliability records | Done |
-| 4. Proof | Tests that back every promise, including the Kickback comparison | In progress |
+| 4. Proof | Tests that back every promise, including the Kickback comparison | Done |
 | 5. Testnet launch | A locked, verifiable contract on NEAR testnet | Planned |
 | 6. Apps | SDK, relayer, host console and web app | Planned |
 | 7. Any chain | Deposits from any chain through NEAR Intents | Planned |
@@ -40,12 +40,14 @@ What is being built, in order. Each stage builds on the one before it. The desig
 - [x] Payouts into NEAR Intents balances, built for mainnet (checked live in stage 7)
 - [x] Closing an event frees its storage and refunds the organizer what is provably unused
 
-## 4. Proof (in progress)
+## 4. Proof (done)
 
 - [x] Property tests for conservation, principal protection, no erasure and refund bias, over random event histories checked against an independent model
 - [x] Kickback's own contract in a Foundry test, with its organizer taking every deposit, and the same attack failing against Bail
-- [ ] A whole event lifecycle on the compiled contract in a local NEAR sandbox
-- [ ] Reproducible build and continuous integration
+- [x] A whole event lifecycle on the compiled contract in a local NEAR sandbox, settled by an account with no role in the event
+- [x] The host key and the transfer callback checked on the compiled contract, where NEAR enforces their limits
+- [x] Reproducible build in a Docker image pinned by digest, giving the same wasm hash on every rebuild
+- [x] Continuous integration running every test above on every push
 
 ## 5. Testnet launch
 

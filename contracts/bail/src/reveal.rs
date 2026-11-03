@@ -12,7 +12,9 @@ pub(crate) enum SlotState {
     Pending,
     /// Never opened by the end of check-in, or never revealed by the deadline.
     Void,
-    Revealed { caught: bool },
+    Revealed {
+        caught: bool,
+    },
 }
 
 /// `caught >= max(0, R - void)`. A void slot can cost a ticket at most the one catch it
@@ -108,7 +110,10 @@ pub(crate) fn slot_states(
             if slot_is_void(event, slot, now) {
                 return SlotState::Void;
             }
-            let revealed = event.slots.get(usize::from(slot)).and_then(|s| s.revealed.as_ref());
+            let revealed = event
+                .slots
+                .get(usize::from(slot))
+                .and_then(|s| s.revealed.as_ref());
             match revealed {
                 Some(code) => {
                     let expected = catch_proof(event_id, slot, code, key);
@@ -152,7 +157,13 @@ fn push_field(buf: &mut Vec<u8>, bytes: &[u8]) {
     buf.extend_from_slice(bytes);
 }
 
-fn slot_hash(domain: &[u8], event_id: EventId, slot: u8, code: &str, key: Option<&TicketKey>) -> [u8; 32] {
+fn slot_hash(
+    domain: &[u8],
+    event_id: EventId,
+    slot: u8,
+    code: &str,
+    key: Option<&TicketKey>,
+) -> [u8; 32] {
     let mut buf = Vec::with_capacity(128);
     push_field(&mut buf, domain);
     push_field(&mut buf, env::current_account_id().as_bytes());

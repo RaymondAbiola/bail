@@ -25,7 +25,10 @@ impl Bail {
         require!(commitment.0.len() == 32, "commitment must be 32 bytes");
 
         let window = event.checkin.window_ms;
-        require!(now >= event.schedule.checkin_opens_at_ms, "check-in is not open");
+        require!(
+            now >= event.schedule.checkin_opens_at_ms,
+            "check-in is not open"
+        );
         require!(
             now + window <= event.schedule.checkin_closes_at_ms,
             "the window would end after check-in closes"
@@ -68,7 +71,10 @@ impl Bail {
             .get(usize::from(slot))
             .expect("slot is not open")
             .opened_at_ms;
-        require!(now < opened + event.checkin.window_ms, "code window is closed");
+        require!(
+            now < opened + event.checkin.window_ms,
+            "code window is closed"
+        );
         require!(proof.0.len() == 32, "proof must be 32 bytes");
 
         let ticket = ticket_bytes(&ticket_key).expect("ticket key must be ed25519");
@@ -81,7 +87,10 @@ impl Bail {
             event_id,
             &[&slot.to_string(), &attempt.to_string(), &hex(&proof.0)],
         );
-        require!(verify_ticket(&ticket, &message, &signature.0), "invalid signature");
+        require!(
+            verify_ticket(&ticket, &message, &signature.0),
+            "invalid signature"
+        );
 
         let current = &mut entry.catches[usize::from(slot)];
         if let Some(previous) = current {
@@ -124,7 +133,10 @@ impl Bail {
             .get_mut(&(event_id, ticket))
             .expect("no such ticket");
         let message = signed_message("flag", event_id, &[&slot.to_string()]);
-        require!(verify_ticket(&ticket, &message, &signature.0), "invalid signature");
+        require!(
+            verify_ticket(&ticket, &message, &signature.0),
+            "invalid signature"
+        );
 
         let bit = 1u8 << slot;
         require!(entry.flags & bit == 0, "already flagged");

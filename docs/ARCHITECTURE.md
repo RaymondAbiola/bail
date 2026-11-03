@@ -81,7 +81,7 @@ The contract holds all funds and all rules. Every off-chain part is replaceable:
 | Arbiter | An account named at creation that can't be the organizer, such as a Sputnik DAO | Void the event during the dispute window, which refunds everyone | Send money anywhere except back to depositors |
 | Anyone | Nothing | Reveal a code they know, tally, pay out | Anything that needs a signature |
 
-Function-call keys are a NEAR protocol feature: the network itself refuses any transaction from that key except calls to the named contract and methods, with no tokens attached. A leaked host or relayer key cannot steal anything.
+Function-call keys are a NEAR protocol feature: the network itself refuses any transaction from that key except calls to the named contract and methods, with no tokens attached. A leaked host or relayer key cannot steal anything. The sandbox test `the_host_key_can_only_open_slots` shows this on a real NEAR node: the network refuses the host key's calls to `cancel_event` and `tally` and its attempt to send NEAR. The protocol checks a key's allowance against the most its attached gas could cost, which for 300 Tgas came to just over 1 NEAR in the sandbox, so the host console attaches 30 Tgas to each `open_slot` call.
 
 ## 5. Event lifecycle
 
@@ -388,18 +388,23 @@ If the swap fails, 1Click refunds the attendee's own Solana address automaticall
 
 | Id | Invariant | Tests |
 |---|---|---|
-| I1 | Conservation: every token an event takes in goes back out, as payouts, owed refunds or the fee, except dust held when there is no fee account. | `every_history_keeps_bails_promises` pays out random event histories (256 per `cargo test`, any number with `PROPTEST_CASES`; 1,000 passed before this was committed) and checks the totals to the micro-unit. `tally_reproduces_the_worked_example` checks section 6.7. |
+| I1 | Conservation: every token an event takes in goes back out, as payouts, owed refunds or the fee, except dust held when there is no fee account. | `every_history_keeps_bails_promises` pays out random event histories (256 per `cargo test`, 1,000 in continuous integration, any number with `PROPTEST_CASES`) and checks the totals to the micro-unit. `tally_reproduces_the_worked_example` checks section 6.7. `a_whole_event_runs_on_the_compiled_contract` checks the same on a NEAR node: every account's balance to the unit, and the contract left holding none of the event's tokens. |
 | I2 | Principal protection: an attended, vouched or refunded ticket receives at least D. | `every_history_keeps_bails_promises`. |
 | I3 | No erasure: only a ticket's own signature can change its catches, and only inside the slot's window. Nothing turns an attended ticket into anything else. | `every_history_keeps_bails_promises` checks every ticket's outcome against an independent model built from what it actually heard. Unit tests cover overwrites, replays and signatures. |
 | I4 | Time lock: no tally before `dispute_ends_at`, and no schedule edits ever. | Unit tests for scheduling and tally, including `bail_has_no_early_finalize`. |
 | I5 | Refund bias: cancel, void, vouch and void slots never reduce what any depositor receives below D, and never pay anyone more than D unless they attended. | `every_history_keeps_bails_promises` (cancelled and voided events refund exactly D, vouched tickets get exactly D) and `voiding_a_slot_never_disqualifies_anyone`. |
-| I6 | Liveness: after the deadlines, tally and payout succeed when called by any account. | Sandbox test with a stranger account as keeper. |
+| I6 | Liveness: after the deadlines, tally and payout succeed when called by any account. | `a_whole_event_runs_on_the_compiled_contract` runs a six-person event on the compiled wasm in a local NEAR sandbox. An account with no role in the event submits the attendees' signed catches and vouches, then runs tally, payout, the owed claims and close. Every payout lands, including one refused by an unregistered wallet and claimed once it registers, and the organizer's unused storage comes back. |
 | I7 | Bounded bounce: a transfer is bounced only when it names no payable address or underpays. | Unit tests for deposits. |
+| A1 | Access: the host key can only open slots, and only the contract itself can answer a transfer. | `the_host_key_can_only_open_slots` and `only_the_contract_can_answer_a_transfer`, both on the compiled wasm, since NEAR enforces key permissions and `#[private]` only on a real node. |
 | Q1 | Voiding a slot never disqualifies anyone. | `voiding_a_slot_never_disqualifies_anyone`: every combination of slot outcomes for every K and R. |
 | K1 | The Kickback attack (organizer marks only their own accounts) succeeds against Kickback's own Solidity contract and fails against Bail. | `tests/kickback`: Foundry runs Kickback's MIT-licensed source, copied in unchanged with SHA-256 hashes, and the organizer takes all four deposits. `the_kickback_attack_fails_against_bail` and `hiding_the_codes_is_undone_by_the_arbiter` run the same scenario on Bail. |
 | R1 | The residual risk is real: without the arbiter, hidden codes cost honest attendees. | `if_the_arbiter_does_nothing_hidden_codes_cost_honest_attendees`, so the threat model's admission is shown, not just stated. |
 
 The property test was itself checked by planting bugs: giving vouched tickets a bonus, and making qualification one catch stricter. It caught both and shrank each to a minimal failing history; those histories are kept in `contracts/bail/proptest-regressions` and replayed on every run.
+
+Continuous integration (`.github/workflows/ci.yml`) runs on every push: formatting, lints with warnings as errors, the unit and property tests with 1,000 cases, the sandbox tests, the wasm build, and the Kickback test after checking the copied source against its SHA-256 hashes.
+
+The contract's `Cargo.toml` pins its reproducible build to a Docker image by digest. Two builds of the same commit give byte-identical wasm, so anyone can rebuild the deployed contract from this repository and compare its hash with the code onchain.
 
 [CLAIMS.md](../CLAIMS.md) maps every claim in the README to its source line or its test.
 
@@ -450,7 +455,8 @@ bail/
     src/                   lib.rs, event.rs, deposit.rs, tickets.rs, cancel.rs, checkin.rs, reveal.rs,
                            recourse.rs, settle.rs, payout.rs
     src/tests.rs           unit tests; src/tests/proptests.rs, the random-history property test
-    tests/                 sandbox integration tests on the compiled wasm
+    tests/sandbox.rs       sandbox integration tests on the compiled wasm
+  contracts/test-token/    a standard NEP-141 token for the sandbox tests
   tests/kickback/          Foundry project: Kickback's own contract (MIT, unchanged) and the attack test
   packages/sdk/            TypeScript SDK and shared test vectors
   apps/relayer/            relayer, keeper and testnet faucet
@@ -460,6 +466,7 @@ bail/
   docs/                    ARCHITECTURE.md, ROADMAP.md
     diagrams/              Mermaid sources for the four flow diagrams
     images/                rendered SVG diagrams
+  .github/workflows/       continuous integration
   README.md  CLAIMS.md  LICENSE
 ```
 
