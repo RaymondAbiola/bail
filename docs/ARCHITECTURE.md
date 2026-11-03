@@ -145,7 +145,7 @@ pub struct Ticket {
 
 | Method | Caller | Phase | Effect |
 |---|---|---|---|
-| `new(config)` | deployer | once | Fixes the fee and the duration limits. |
+| `new(config)` | the contract account itself (`#[private]`), in the deploy transaction | once | Fixes the fee and the duration limits. |
 | `create_event(event)` | organizer, with storage NEAR | any | Validates the schedule against the duration limits, requires an arbiter other than the organizer, and checks that prepaid storage covers every seat. |
 | `ft_on_transfer` | token contract | Open | Turns a deposit into a seat, or records it as owed (6.3). |
 | `cancel_rsvp(event, ticket, sig)` | anyone, ticket-signed | Open, before cutoff | Frees the seat. The full deposit is owed to the ticket's payout address. The freed ticket record pays for that refund record, so the owed cap doesn't apply. |
@@ -395,7 +395,7 @@ If the swap fails, 1Click refunds the attendee's own Solana address automaticall
 | I5 | Refund bias: cancel, void, vouch and void slots never reduce what any depositor receives below D, and never pay anyone more than D unless they attended. | `every_history_keeps_bails_promises` (cancelled and voided events refund exactly D, vouched tickets get exactly D) and `voiding_a_slot_never_disqualifies_anyone`. |
 | I6 | Liveness: after the deadlines, tally and payout succeed when called by any account. | `a_whole_event_runs_on_the_compiled_contract` runs a six-person event on the compiled wasm in a local NEAR sandbox. An account with no role in the event submits the attendees' signed catches and vouches, then runs tally, payout, the owed claims and close. Every payout lands, including one refused by an unregistered wallet and claimed once it registers, and the organizer's unused storage comes back. |
 | I7 | Bounded bounce: a transfer is bounced only when it names no payable address or underpays. | Unit tests for deposits. |
-| A1 | Access: the host key can only open slots, and only the contract itself can answer a transfer. | `the_host_key_can_only_open_slots` and `only_the_contract_can_answer_a_transfer`, both on the compiled wasm, since NEAR enforces key permissions and `#[private]` only on a real node. |
+| A1 | Access: the host key can only open slots, and only the contract itself can initialise the contract or answer a transfer. | `the_host_key_can_only_open_slots`, `only_the_contract_can_initialise_itself` and `only_the_contract_can_answer_a_transfer`, all on the compiled wasm, since NEAR enforces key permissions and `#[private]` only on a real node. |
 | Q1 | Voiding a slot never disqualifies anyone. | `voiding_a_slot_never_disqualifies_anyone`: every combination of slot outcomes for every K and R. |
 | K1 | The Kickback attack (organizer marks only their own accounts) succeeds against Kickback's own Solidity contract and fails against Bail. | `tests/kickback`: Foundry runs Kickback's MIT-licensed source, copied in unchanged with SHA-256 hashes, and the organizer takes all four deposits. `the_kickback_attack_fails_against_bail` and `hiding_the_codes_is_undone_by_the_arbiter` run the same scenario on Bail. |
 | R1 | The residual risk is real: without the arbiter, hidden codes cost honest attendees. | `if_the_arbiter_does_nothing_hidden_codes_cost_honest_attendees`, so the threat model's admission is shown, not just stated. |
@@ -445,6 +445,10 @@ The contract's `Cargo.toml` pins its reproducible build to a Docker image by dig
 | 1Click | Dry quotes only (NEAR Intents has no testnet) | Live |
 | Durations | Short minimums for demos | Hours |
 
+`scripts/deploy.sh` builds the contract reproducibly, deploys and initialises it in one transaction on a fresh sub-account, registers it with test USDC, checks the onchain code hash, and only then deletes the account's one key. Bail has no method that deploys code or adds keys, so after that nobody, including its author, can change it. A token other than test USDC needs the contract registered with it first, which anyone can do with `storage_deposit`.
+
+`scripts/verify.py` checks a deployment using only the chain and this repository. It confirms the account has no keys, reads the source commit and build image the contract names (NEP-330), rebuilds that commit in that image, and compares the hash with the code onchain.
+
 The hackathon rules allow testnet-only projects in every track (Q-010) and ask for mainnet with tiny amounts only where an integration is mainnet-only (Q-007).
 
 ## 14. Repository layout
@@ -462,7 +466,8 @@ bail/
   apps/relayer/            relayer, keeper and testnet faucet
   apps/host/               host console
   apps/web/                web app
-  scripts/                 deploy, lock, verify, and render-diagrams.sh
+  scripts/                 deploy.sh, verify.py, render-diagrams.sh
+  deployments/             testnet.json: the deployed contract, its source commit and transactions
   docs/                    ARCHITECTURE.md, ROADMAP.md
     diagrams/              Mermaid sources for the four flow diagrams
     images/                rendered SVG diagrams

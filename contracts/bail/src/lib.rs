@@ -56,7 +56,9 @@ pub struct Bail {
 
 #[near]
 impl Bail {
+    /// Only the contract account itself can initialise it, in the same transaction as the deploy.
     #[init]
+    #[private]
     pub fn new(config: Config) -> Self {
         config.validate();
         Self {

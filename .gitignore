@@ -4,3 +4,4 @@
 .local/
 /tests/kickback/out
 /tests/kickback/cache
+__pycache__/

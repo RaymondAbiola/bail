@@ -2,7 +2,7 @@
 
 What is being built, in order. Each stage builds on the one before it. The design behind every item is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-![Bail roadmap in two rows. Build the contract: Foundation (done), Check-in (done), Recourse and settlement (done), Proof (done). Ship it: Testnet launch, Apps, Any chain, First real event.](images/roadmap.svg)
+![Bail roadmap in two rows. Build the contract: Foundation (done), Check-in (done), Recourse and settlement (done), Proof (done). Ship it: Testnet launch (in progress), Apps, Any chain, First real event.](images/roadmap.svg)
 
 | Stage | What it delivers | Status |
 |---|---|---|
@@ -10,7 +10,7 @@ What is being built, in order. Each stage builds on the one before it. The desig
 | 2. Check-in | Live codes that prove who was there | Done |
 | 3. Recourse and settlement | Fair outcomes, payouts and reliability records | Done |
 | 4. Proof | Tests that back every promise, including the Kickback comparison | Done |
-| 5. Testnet launch | A locked, verifiable contract on NEAR testnet | Planned |
+| 5. Testnet launch | A locked, verifiable contract on NEAR testnet | In progress |
 | 6. Apps | SDK, relayer, host console and web app | Planned |
 | 7. Any chain | Deposits from any chain through NEAR Intents | Planned |
 | 8. First real event | A live event with published results | Planned |
@@ -49,7 +49,7 @@ What is being built, in order. Each stage builds on the one before it. The desig
 - [x] Reproducible build in a Docker image pinned by digest, giving the same wasm hash on every rebuild
 - [x] Continuous integration running every test above on every push
 
-## 5. Testnet launch
+## 5. Testnet launch (in progress)
 
 - [ ] Contract deployed to `v1.dontbail.testnet` and locked, with no access keys left
 - [ ] Verify script checking that the onchain code hash matches the reproducible build

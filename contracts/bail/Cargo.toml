@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 publish = false
+repository = "https://github.com/RaymondAbiola/bail"
 
 [package.metadata.near.reproducible_build]
 # Image recommended by cargo-near 0.22; the digest, not the tag, identifies it.

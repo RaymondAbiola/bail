@@ -577,3 +577,24 @@ async fn only_the_contract_can_answer_a_transfer() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn only_the_contract_can_initialise_itself() -> anyhow::Result<()> {
+    let (bail_wasm, _) = wasm().await?;
+    let worker = near_workspaces::sandbox().await?;
+    let bail = worker.dev_deploy(bail_wasm).await?;
+    let attacker = worker.dev_create_account().await?;
+    let outcome = attacker
+        .call(bail.id(), "new")
+        .args_json(json!({ "config": {
+            "fee_bps": 1_000, "fee_account": attacker.id(),
+            "min_window_ms": MINUTE, "min_reveal_ms": MINUTE, "min_dispute_ms": MINUTE,
+            "max_event_ms": MINUTE, "intents_account": null,
+        }}))
+        .max_gas()
+        .transact()
+        .await?;
+    let failure = format!("{:?}", outcome.into_result().unwrap_err());
+    assert!(failure.contains("Method new is private"), "{failure}");
+    Ok(())
+}
