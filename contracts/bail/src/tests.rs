@@ -18,6 +18,7 @@ use crate::settle::payout_amount;
 use crate::*;
 
 mod proptests;
+mod vectors;
 
 const NS_PER_MS: u64 = 1_000_000;
 const DEPOSIT: u128 = 1_000_000; // 1 USDC, 6 decimals

@@ -1,0 +1,10 @@
+{
+  "name": "bail",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -5,3 +5,4 @@
 /tests/kickback/out
 /tests/kickback/cache
 __pycache__/
+node_modules/

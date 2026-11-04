@@ -54,3 +54,24 @@ jobs:
       - name: The organizer takes every deposit on Kickback
         working-directory: tests/kickback
         run: forge test -vv
+
+  sdk:
+    name: SDK
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check
+        working-directory: packages/sdk
+        run: npm run typecheck
+
+      - name: Test vectors built by the contract, and SDK tests
+        working-directory: packages/sdk
+        run: npm test

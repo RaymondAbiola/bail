@@ -2,7 +2,7 @@
 
 What is being built, in order. Each stage builds on the one before it. The design behind every item is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-![Bail roadmap in two rows. Build the contract: Foundation (done), Check-in (done), Recourse and settlement (done), Proof (done). Ship it: Testnet launch (done), Apps, Any chain, First real event.](images/roadmap.svg)
+![Bail roadmap in two rows. Build the contract: Foundation (done), Check-in (done), Recourse and settlement (done), Proof (done). Ship it: Testnet launch (done), Apps (in progress), Any chain, First real event.](images/roadmap.svg)
 
 | Stage | What it delivers | Status |
 |---|---|---|
@@ -11,7 +11,7 @@ What is being built, in order. Each stage builds on the one before it. The desig
 | 3. Recourse and settlement | Fair outcomes, payouts and reliability records | Done |
 | 4. Proof | Tests that back every promise, including the Kickback comparison | Done |
 | 5. Testnet launch | A locked, verifiable contract on NEAR testnet | Done |
-| 6. Apps | SDK, relayer, host console and web app | Planned |
+| 6. Apps | SDK, relayer, host console and web app | In progress |
 | 7. Any chain | Deposits from any chain through NEAR Intents | Planned |
 | 8. First real event | A live event with published results | Planned |
 
@@ -54,9 +54,9 @@ What is being built, in order. Each stage builds on the one before it. The desig
 - [x] Contract deployed to [`v1.dontbail.testnet`](https://testnet.nearblocks.io/address/v1.dontbail.testnet) and locked, with no access keys left
 - [x] Verify script checking that the onchain code hash matches the reproducible build; run `scripts/verify.py` to check it yourself
 
-## 6. Apps
+## 6. Apps (in progress)
 
-- [ ] TypeScript SDK, byte-identical to the contract
+- [x] TypeScript SDK, byte-identical to the contract, checked against test vectors the contract's own code builds
 - [ ] Relayer and keeper, so attendees pay no NEAR gas and events settle themselves
 - [ ] Testnet onboarding with a faucet and meta transactions, starting from a fresh browser with no NEAR
 - [ ] Host console to create events, run live codes, reveal them and report results

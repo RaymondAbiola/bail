@@ -281,7 +281,7 @@ bail/v1/vouch/<contract_id>/<event_id>/<target_public_key>
 
 The contract id stops a testnet signature from replaying on mainnet, and the event id stops one event's signature from replaying on another. In the vouch message the target key appears as `ed25519:<base58>`, rebuilt by the contract from the key's bytes so the signed text doesn't depend on how a caller formatted it. Cancel, flag and vouch are one-shot per ticket. Catches carry an attempt number that must increase, which is the only nonce needed. Signatures are passed as base64-encoded 64-byte ed25519 signatures, and the contract checks them with NEAR's `ed25519_verify` host function. Commitments and proofs are passed as base64-encoded 32 bytes; inside a signed message the proof appears as lowercase hex.
 
-Hashes: `commitment = sha256(F("bail/v1/code") ‖ F(contract_id) ‖ F(event_id) ‖ F(slot) ‖ F(code))` and `proof = sha256(F("bail/v1/proof") ‖ F(contract_id) ‖ F(event_id) ‖ F(slot) ‖ F(code) ‖ F(pubkey))`. `F(x)` is the length of `x` as 4 little-endian bytes followed by `x`, so no two different inputs produce the same bytes. `event_id` is 8 little-endian bytes, `slot` is 1 byte and `pubkey` is the 32 raw key bytes. Codes are normalized to lowercase ASCII words joined by single spaces, at most 64 bytes. The contract's tests pin both hashes against test vectors computed independently in Python, and the SDK's tests will check the same vectors.
+Hashes: `commitment = sha256(F("bail/v1/code") ‖ F(contract_id) ‖ F(event_id) ‖ F(slot) ‖ F(code))` and `proof = sha256(F("bail/v1/proof") ‖ F(contract_id) ‖ F(event_id) ‖ F(slot) ‖ F(code) ‖ F(pubkey))`. `F(x)` is the length of `x` as 4 little-endian bytes followed by `x`, so no two different inputs produce the same bytes. `event_id` is 8 little-endian bytes, `slot` is 1 byte and `pubkey` is the 32 raw key bytes. Codes are normalized to lowercase ASCII words joined by single spaces, at most 64 bytes. The contract's tests pin both hashes against test vectors computed independently in Python. The SDK's agreement with the contract is checked through `packages/sdk/test/vectors.json`, which the contract's own code builds (I8 in section 10).
 
 ### 6.11 Storage and gas
 
@@ -302,9 +302,10 @@ At NEAR's storage price (1 NEAR per 100 KB), a 30-seat event prepays about 0.3 N
 
 ### 7.1 SDK (`packages/sdk`, TypeScript)
 
-- Ticket keys: generate, back up, restore (ed25519 via `@noble/curves`).
-- RSVP notes, proofs, commitments and canonical signed messages, byte-identical to the contract (checked against the shared test vectors).
-- Typed views over NEAR RPC, and a relayer client for actions.
+- Ticket keys: generate, back up in NEAR's secret key format, restore (ed25519 via `@noble/curves`).
+- Signed `catch`, `flag`, `cancel` and `vouch` actions whose arguments are exactly the contract method's, so a relayer only forwards them.
+- RSVP notes, five-word codes from the BIP-39 list, commitments and proofs, byte-identical to the contract.
+- Typed views over NEAR RPC, the lifecycle phase at any time, and a relayer client.
 
 ### 7.2 Relayer and keeper (`apps/relayer`, Node)
 
@@ -395,6 +396,7 @@ If the swap fails, 1Click refunds the attendee's own Solana address automaticall
 | I5 | Refund bias: cancel, void, vouch and void slots never reduce what any depositor receives below D, and never pay anyone more than D unless they attended. | `every_history_keeps_bails_promises` (cancelled and voided events refund exactly D, vouched tickets get exactly D) and `voiding_a_slot_never_disqualifies_anyone`. |
 | I6 | Liveness: after the deadlines, tally and payout succeed when called by any account. | `a_whole_event_runs_on_the_compiled_contract` runs a six-person event on the compiled wasm in a local NEAR sandbox. An account with no role in the event submits the attendees' signed catches and vouches, then runs tally, payout, the owed claims and close. Every payout lands, including one refused by an unregistered wallet and claimed once it registers, and the organizer's unused storage comes back. |
 | I7 | Bounded bounce: a transfer is bounced only when it names no payable address or underpays. | Unit tests for deposits. |
+| I8 | Agreement: the SDK builds the same hashes, signed messages, signatures and RSVP notes as the contract, and refuses exactly the payout addresses it refuses. | `sdk_vectors_match_the_contract` builds `packages/sdk/test/vectors.json` from the contract's own functions, depositing every RSVP note into a contract to record whether it is accepted, and fails if the committed file differs. `vectors.test.ts` checks the SDK against the same file. Changing one number in the file fails both. |
 | A1 | Access: the host key can only open slots, and only the contract itself can initialise the contract or answer a transfer. | `the_host_key_can_only_open_slots`, `only_the_contract_can_initialise_itself` and `only_the_contract_can_answer_a_transfer`, all on the compiled wasm, since NEAR enforces key permissions and `#[private]` only on a real node. |
 | Q1 | Voiding a slot never disqualifies anyone. | `voiding_a_slot_never_disqualifies_anyone`: every combination of slot outcomes for every K and R. |
 | K1 | The Kickback attack (organizer marks only their own accounts) succeeds against Kickback's own Solidity contract and fails against Bail. | `tests/kickback`: Foundry runs Kickback's MIT-licensed source, copied in unchanged with SHA-256 hashes, and the organizer takes all four deposits. `the_kickback_attack_fails_against_bail` and `hiding_the_codes_is_undone_by_the_arbiter` run the same scenario on Bail. |
@@ -402,7 +404,7 @@ If the swap fails, 1Click refunds the attendee's own Solana address automaticall
 
 The property test was itself checked by planting bugs: giving vouched tickets a bonus, and making qualification one catch stricter. It caught both and shrank each to a minimal failing history; those histories are kept in `contracts/bail/proptest-regressions` and replayed on every run.
 
-Continuous integration (`.github/workflows/ci.yml`) runs on every push: formatting, lints with warnings as errors, the unit and property tests with 1,000 cases, the sandbox tests, the wasm build, and the Kickback test after checking the copied source against its SHA-256 hashes.
+Continuous integration (`.github/workflows/ci.yml`) runs on every push: formatting, lints with warnings as errors, the unit and property tests with 1,000 cases, the sandbox tests, the wasm build, the Kickback test after checking the copied source against its SHA-256 hashes, and the SDK's type check and tests.
 
 The contract's `Cargo.toml` pins its reproducible build to a Docker image by digest. Two builds of the same commit give byte-identical wasm, so anyone can rebuild the deployed contract from this repository and compare its hash with the code onchain.
 
@@ -460,7 +462,8 @@ bail/
   contracts/bail/          the contract (Rust, near-sdk 5.30)
     src/                   lib.rs, event.rs, deposit.rs, tickets.rs, cancel.rs, checkin.rs, reveal.rs,
                            recourse.rs, settle.rs, payout.rs
-    src/tests.rs           unit tests; src/tests/proptests.rs, the random-history property test
+    src/tests.rs           unit tests; src/tests/proptests.rs, the random-history property test;
+                           src/tests/vectors.rs, which builds the SDK's test vectors
     tests/sandbox.rs       sandbox integration tests on the compiled wasm
   contracts/test-token/    a standard NEP-141 token for the sandbox tests
   tests/kickback/          Foundry project: Kickback's own contract (MIT, unchanged) and the attack test
