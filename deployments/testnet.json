@@ -1,0 +1,24 @@
+{
+  "network": "testnet",
+  "contract": "v1.dontbail.testnet",
+  "parent": "dontbail.testnet",
+  "source": "https://github.com/RaymondAbiola/bail/tree/73d60f83a6b58019b227efb81104eb513d18f471",
+  "code_hash": "2gRhkWwwyvBNqfPHv3eWtJsRSQgtY1AeNb7uVVaLAkRk",
+  "config": {
+    "fee_bps": 0,
+    "fee_account": null,
+    "min_window_ms": 60000,
+    "min_reveal_ms": 60000,
+    "min_dispute_ms": 60000,
+    "max_event_ms": 2592000000,
+    "intents_account": null
+  },
+  "token": "3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af",
+  "transactions": {
+    "create": "AbGmmgC2wvAtWhXvYK6GvBxCmBhqURANagqcYXDoCx6Y",
+    "deploy": "9RMMh7uvekbFTtRCTSCVgDSb21D27k62aU2jWmGjZ4x7",
+    "register": "HnYhesMfsKim3nsyGzEiz8WfWySERnwPEXRoVp9pKVBC",
+    "lock": "8CjZchcqStaQSM7pjvxfbCEGCcbJoJyYukGQpRmU1VZ3"
+  },
+  "locked_at": "2026-11-04T23:01:56Z"
+}

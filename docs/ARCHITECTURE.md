@@ -449,6 +449,8 @@ The contract's `Cargo.toml` pins its reproducible build to a Docker image by dig
 
 `scripts/verify.py` checks a deployment using only the chain and this repository. It confirms the account has no keys, reads the source commit and build image the contract names (NEP-330), rebuilds that commit in that image, and compares the hash with the code onchain.
 
+The testnet contract was deployed this way on 4 November 2026. [deployments/testnet.json](../deployments/testnet.json) records its source commit, code hash, config and the four transactions that created, deployed, registered and locked it.
+
 The hackathon rules allow testnet-only projects in every track (Q-010) and ask for mainnet with tiny amounts only where an integration is mainnet-only (Q-007).
 
 ## 14. Repository layout
