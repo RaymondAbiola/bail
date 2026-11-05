@@ -21,7 +21,7 @@ The sponsor is a separate account with a full-access key of its own, kept small.
 
 ## Keeper
 
-Every 30 seconds the keeper reads each open event and, judging deadlines by block time as the contract does, calls `tally`, then `payout`, then `close_event` in pages. A page that runs out of gas is halved and retried. It waits a minute after the last payout before closing, so transfer callbacks settle first.
+Every 30 seconds the keeper reads each open event and, judging deadlines by block time as the contract does, calls `tally`, then `payout`, then `close_event` in pages. A page that runs out of gas is halved and retried. It waits six hours after the last payout before closing (`KEEPER_CLOSE_DELAY_MINUTES`): closing frees every ticket's storage, and with it the per-ticket results attendees look up, while it only refunds the organizer's storage, so there is no hurry. The wait also lets transfer callbacks settle.
 
 ## Running it on testnet
 

@@ -9,7 +9,11 @@ export interface KeeperOptions {
   view: BailView;
   /** Tickets per call. A page that runs out of gas is halved and retried. */
   pages?: { tally: number; payout: number; close: number };
-  /** How long to wait after the last payout before closing, so transfer callbacks settle first. */
+  /**
+   * How long to wait after the last payout before closing. Closing frees each ticket's
+   * storage, and with it the per-ticket results attendees look up, while only refunding
+   * the organizer's storage, so there is no hurry.
+   */
   closeDelayMs?: number;
   /** At most this many calls per event per tick, so one event can't starve the others. */
   callsPerTick?: number;
@@ -39,7 +43,7 @@ export class Keeper {
   constructor(options: KeeperOptions) {
     this.#options = {
       pages: { tally: 25, payout: 8, close: 25 },
-      closeDelayMs: 60_000,
+      closeDelayMs: 6 * 60 * 60_000,
       callsPerTick: 10,
       ...options,
     };

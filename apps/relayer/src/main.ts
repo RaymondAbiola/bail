@@ -6,6 +6,7 @@
 // PORT             default 8787
 // ALLOW_ORIGIN     the web app's origin, default *
 // KEEPER           set to "off" to run the relayer without the keeper
+// KEEPER_CLOSE_DELAY_MINUTES  how long after the last payout to close an event, default 360
 // SPONSOR_ACCOUNT  testnet only: an account holding test NEAR and test USDC for onboarding
 // SPONSOR_KEY      its full-access secret key (never logged)
 // BAIL_TOKEN       default Circle's test USDC
@@ -47,4 +48,5 @@ relayerServer({ chain, view, contractId, sponsor, allowOrigin: env.ALLOW_ORIGIN 
   const faucet = sponsor ? `, faucet from ${sponsor.sender.accountId}` : "";
   console.log(`relayer for ${contractId} as ${chain.accountId} with ${chain.keyCount} keys${faucet} on :${port}`);
 });
-if (env.KEEPER !== "off") new Keeper({ chain, view }).start();
+const closeDelayMs = Number(env.KEEPER_CLOSE_DELAY_MINUTES ?? 360) * 60_000;
+if (env.KEEPER !== "off") new Keeper({ chain, view, closeDelayMs }).start();

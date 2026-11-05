@@ -47,12 +47,13 @@ jobs:
       - run: npm ci
 
       # Reuses the near-sandbox binary the sandbox tests downloaded.
-      - name: Relayer and keeper run an event on a local NEAR node
+      - name: Relayer, keeper and host console run events on a local NEAR node
         run: |
           cargo near build non-reproducible-wasm --manifest-path contracts/test-token/Cargo.toml
           export NEAR_SANDBOX_BIN=$(find "$PWD/target" -type f -name near-sandbox -perm -u+x | head -1)
           test -n "$NEAR_SANDBOX_BIN"
-          cd apps/relayer && node --test test/sandbox.test.ts
+          (cd apps/relayer && node --test test/sandbox.test.ts)
+          (cd apps/host && node --test test/sandbox.test.ts)
 
   kickback:
     name: Kickback comparison
@@ -71,7 +72,7 @@ jobs:
         run: forge test -vv
 
   typescript:
-    name: SDK and relayer
+    name: SDK, relayer and host console
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -93,3 +94,7 @@ jobs:
       - name: Relayer and keeper tests
         working-directory: apps/relayer
         run: node --test test/relayer.test.ts
+
+      - name: Host console tests
+        working-directory: apps/host
+        run: node --test test/host.test.ts

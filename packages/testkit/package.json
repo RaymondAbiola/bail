@@ -1,0 +1,22 @@
+{
+  "name": "@bail/testkit",
+  "version": "0.1.0",
+  "description": "A local NEAR node with Bail and a test token deployed, for integration tests",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bail/sdk": "0.1.0",
+    "near-api-js": "7.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}

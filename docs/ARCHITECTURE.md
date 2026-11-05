@@ -311,13 +311,13 @@ At NEAR's storage price (1 NEAR per 100 KB), a 30-seat event prepays about 0.3 N
 
 - `POST /v1/catch`, `/v1/flag`, `/v1/cancel`, `/v1/vouch` take exactly the contract method's arguments. The relayer checks the fields, the ticket's signature (rebuilt with the SDK, as the contract will) and that the ticket exists, rate-limits per IP and per ticket, then submits with a function-call key limited to Bail's attendee and keeper methods, none of which takes attached NEAR. After a cancellation it claims the refund. Keys come from environment variables and are never logged.
 - Keys form a pool. Each sends one transaction at a time and is held only until that transaction is included, so no key reuses or skips a nonce; results are read afterwards.
-- Keeper loop: judging deadlines by block time, as the contract does, it calls `tally`, `payout` and `close_event` in pages, halving any page that runs out of gas, and waits a minute after the last payout before closing so transfer callbacks settle first.
+- Keeper loop: judging deadlines by block time, as the contract does, it calls `tally`, `payout` and `close_event` in pages, halving any page that runs out of gas, and waits six hours after the last payout before closing: closing frees each ticket's storage, and with it the per-ticket results attendees look up, while only refunding the organizer's storage.
 - Testnet only, from a separate sponsor account holding a little test NEAR and test USDC: `POST /v1/faucet` turns the attendee's ticket key into an implicit account (its address is the key in hex), registers it with the test USDC contract and sends exactly the event's deposit, once per account and event. `POST /v1/meta` sponsors a NEP-366 signed delegate action only if it is exactly `ft_transfer_call(bail, D, note)` on the event's token: from the implicit account of the key that signed it, with 1 yoctoNEAR and at most 100 Tgas, the event's exact deposit, no other arguments, unexpired, canonically encoded, and a note for this event naming a payable address. The SDK encodes delegate actions itself, held byte for byte to near-api-js by its tests, so the browser doesn't need near-api-js.
 - Anyone can run a relayer, and attendees can also call the contract directly. A relayer can delay an action but cannot forge or change one.
 
 ### 7.3 Host console (`apps/host`, CLI)
 
-`create` (event plus storage deposit), `grant-key` (adds the `open_slot` function-call key), `codes` (five-word codes, saved locally), `live` (opens slots at random moments and shows each code large for screen share or reading aloud, with a countdown), `reveal`, and `report` (attendance and payouts, for the README).
+`create` (event plus storage deposit, and one five-word code per slot, kept on the host's machine), `grant-key` (a function-call key limited to `open_slot` and `reveal`, so the screen-shared terminal holds nothing that can move money), `live` (opens each slot at a random moment timed from the chain's record of the previous slot, shows the code large for screen share or reading aloud with a countdown, and reveals it when its window closes), `reveal`, `status`, `report` (attendance and payouts in Markdown, for the README), and `bots` (SDK-driven rehearsal attendees that RSVP through the faucet and catch codes through the relayer). `apps/host/test/sandbox.test.ts` runs a whole event this way on a local NEAR node.
 
 ### 7.4 Web app (`apps/web`)
 
@@ -472,6 +472,7 @@ bail/
   packages/sdk/            TypeScript SDK and shared test vectors
   apps/relayer/            relayer, keeper and testnet faucet
   apps/host/               host console
+  packages/testkit/        a local NEAR node with Bail and a test token, for integration tests
   apps/web/                web app
   scripts/                 deploy.sh, verify.py, render-diagrams.sh
   deployments/             testnet.json: the deployed contract, its source commit and transactions

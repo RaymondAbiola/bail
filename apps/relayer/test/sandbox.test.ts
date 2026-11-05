@@ -1,20 +1,13 @@
-// A whole event on a local NEAR node, through the real relayer and keeper. Needs the
-// near-sandbox binary and both compiled contracts:
+// A whole event on a local NEAR node, through the real relayer and keeper:
 //   NEAR_SANDBOX_BIN=<path to near-sandbox> node --test test/sandbox.test.ts
-// The wasm files come from `cargo near build non-reproducible-wasm` for contracts/bail and
-// contracts/test-token.
 
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, type AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 
 import { BailView, type FunctionCallDelegate, Ticket, codeCommitment, rsvpDelegate, toBase64 } from "@bail/sdk";
-import { Account, JsonRpcProvider, KeyPair, KeyPairSigner, actions, nearToYocto, teraToGas } from "near-api-js";
-import type { KeyPairString } from "near-api-js";
+import { MINUTE, type Sandbox, USDC, startSandbox } from "@bail/testkit";
+import { KeyPair } from "near-api-js";
 
 import { NearChain, RELAYER_METHODS, Sender } from "../src/chain.ts";
 import { Keeper } from "../src/keeper.ts";
@@ -22,109 +15,41 @@ import { Sponsor } from "../src/onboarding.ts";
 import { relayerServer } from "../src/server.ts";
 
 const bin = process.env.NEAR_SANDBOX_BIN;
-const root = new URL("../../../", import.meta.url).pathname;
-const BAIL_WASM = join(root, "target/near/bail/bail.wasm");
-const TOKEN_WASM = join(root, "target/near/test_token/test_token.wasm");
-const MINUTE = 60_000;
-const USDC = 1_000_000n;
 const CODE = "tiger maple seven ocean lamp";
 
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
-
 test("a fresh browser key RSVPs through the faucet, the event runs through the relayer, and the keeper settles it", { skip: !bin, timeout: 900_000 }, async () => {
-  const home = mkdtempSync(join(tmpdir(), "bail-relayer-"));
-  execFileSync(bin!, ["--home", home, "init"], { stdio: "ignore" });
-  const config = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
-  const rpcPort = await freePort();
-  config.rpc.addr = `127.0.0.1:${rpcPort}`;
-  config.network.addr = `127.0.0.1:${await freePort()}`;
-  writeFileSync(join(home, "config.json"), JSON.stringify(config));
-  const node = spawn(bin!, ["--home", home, "run"], { stdio: "ignore" });
-  const rpcUrl = `http://127.0.0.1:${rpcPort}`;
+  let sandbox: Sandbox | undefined;
   const servers: { close(): void }[] = [];
   let keeper: Keeper | undefined;
 
   try {
-    for (let i = 0; ; i++) {
-      const up = await fetch(`${rpcUrl}/status`).then((r) => r.ok, () => false);
-      if (up) break;
-      if (i > 120) throw new Error("the sandbox node did not start");
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    const provider = new JsonRpcProvider({ url: rpcUrl });
-    const validator = JSON.parse(readFileSync(join(home, "validator_key.json"), "utf8"));
-    const rootAccount = new Account(validator.account_id, provider, validator.secret_key as KeyPairString);
-
-    async function newAccount(name: string, near: `${number}`, extraKeys: KeyPair[] = [], key = KeyPair.fromRandom("ed25519")): Promise<Account> {
-      const id = `${name}.${validator.account_id}`;
-      await rootAccount.signAndSendTransaction({
-        receiverId: id,
-        actions: [
-          actions.createAccount(),
-          actions.transfer(nearToYocto(near)),
-          actions.addFullAccessKey(key.getPublicKey()),
-          ...extraKeys.map((k) =>
-            actions.addFunctionCallAccessKey(k.getPublicKey(), `bail.${validator.account_id}`, RELAYER_METHODS, nearToYocto("2")),
-          ),
-        ],
-      });
-      return new Account(id, provider, new KeyPairSigner(key));
-    }
-    const call = (from: Account, contractId: string, methodName: string, args: object, deposit = 0n, tgas = 100) =>
-      from.callFunction({ contractId, methodName, args, deposit, gas: teraToGas(tgas) });
-
+    const sb = (sandbox = await startSandbox(bin!));
     const relayerKeys = [KeyPair.fromRandom("ed25519"), KeyPair.fromRandom("ed25519")];
     const sponsorKey = KeyPair.fromRandom("ed25519");
     const [bail, usdc, organizer, arbiter, relayer, faucet, bob, carol] = await Promise.all([
-      newAccount("bail", "10"),
-      newAccount("usdc", "10"),
-      newAccount("organizer", "10"),
-      newAccount("arbiter", "1"),
-      newAccount("relayer", "10", relayerKeys),
-      newAccount("faucet", "10", [], sponsorKey),
-      newAccount("bob", "1"),
-      newAccount("carol", "1"),
+      sb.deployBail(),
+      sb.deployToken(),
+      sb.newAccount("organizer", "10"),
+      sb.newAccount("arbiter", "1"),
+      sb.newAccount("relayer", "10", {
+        functionCallKeys: { keys: relayerKeys, receiverId: sb.id("bail"), methods: RELAYER_METHODS, allowance: "2" },
+      }),
+      sb.newAccount("faucet", "10", { key: sponsorKey }),
+      sb.newAccount("bob", "1"),
+      sb.newAccount("carol", "1"),
     ]);
-    await bail.signAndSendTransaction({
-      receiverId: bail.accountId,
-      actions: [
-        actions.deployContract(readFileSync(BAIL_WASM)),
-        actions.functionCall("new", {
-          config: {
-            fee_bps: 0, fee_account: null, min_window_ms: MINUTE, min_reveal_ms: 1000,
-            min_dispute_ms: 1000, max_event_ms: 30 * 24 * 60 * MINUTE, intents_account: null,
-          },
-        }, teraToGas(30)),
-      ],
-    });
-    await usdc.signAndSendTransaction({
-      receiverId: usdc.accountId,
-      actions: [
-        actions.deployContract(readFileSync(TOKEN_WASM)),
-        actions.functionCall("new", { owner_id: usdc.accountId, total_supply: String(100n * USDC) }, teraToGas(30)),
-      ],
-    });
-    for (const holder of [bail, faucet, bob, carol]) {
-      await call(usdc, usdc.accountId, "storage_deposit", { account_id: holder.accountId }, nearToYocto("0.00125"));
-    }
-    for (const [holder, amount] of [[faucet, 10n * USDC], [bob, USDC], [carol, USDC]] as const) {
-      await call(usdc, usdc.accountId, "ft_transfer", { receiver_id: holder.accountId, amount: String(amount) }, 1n);
-    }
+    await sb.fund(usdc, [bail], 0n);
+    await sb.fund(usdc, [faucet], 10n * USDC);
+    await sb.fund(usdc, [bob, carol], USDC);
 
-    const view = new BailView({ contractId: bail.accountId, rpcUrl });
+    const view = new BailView({ contractId: bail.accountId, rpcUrl: sb.rpcUrl });
     const chain = new NearChain({
       accountId: relayer.accountId,
       contractId: bail.accountId,
-      rpcUrl,
+      rpcUrl: sb.rpcUrl,
       keys: relayerKeys.map((k) => k.toString()),
     });
-    const sponsor = new Sponsor(new Sender({ accountId: faucet.accountId, rpcUrl, keys: [sponsorKey.toString()] }), usdc.accountId, view);
+    const sponsor = new Sponsor(new Sender({ accountId: faucet.accountId, rpcUrl: sb.rpcUrl, keys: [sponsorKey.toString()] }), usdc.accountId, view);
     const server = relayerServer({ chain, view, contractId: bail.accountId, sponsor, log: () => {} });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     servers.push(server);
@@ -134,33 +59,13 @@ test("a fresh browser key RSVPs through the faucet, the event runs through the r
         status: r.status,
         body: (await r.json()) as Record<string, unknown>,
       }));
-
-    const rpc = (method: string, params: object) =>
-      fetch(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      }).then((r) => r.json());
-    const height = async (finality: string) =>
-      ((await rpc("block", { finality })) as { result: { header: { height: number } } }).result.header.height;
-
-    // Fast-forwarding jumps the optimistic head ahead of the final one, and transactions
-    // are anchored to a final block, so wait for finality to catch up before going on.
-    async function advanceTo(ms: number): Promise<void> {
-      while ((await view.now()) < ms) {
-        await rpc("sandbox_fast_forward", { delta_height: 20 });
-        await new Promise((r) => setTimeout(r, 300));
-      }
-      while ((await height("optimistic")) - (await height("final")) > 5) {
-        await new Promise((r) => setTimeout(r, 300));
-      }
-    }
+    const balance = (accountId: string) => sb.balance(usdc.accountId, accountId);
 
     // One code slot, required. Alice catches it, Bob cancels, Carol never shows.
     const t0 = await view.now();
     const opens = t0 + 2 * MINUTE;
     const capacity = 4;
-    const id = (await call(organizer, bail.accountId, "create_event", {
+    const id = (await sb.call(organizer, bail.accountId, "create_event", {
       event: {
         token: usdc.accountId, deposit: String(USDC), capacity, arbiter: arbiter.accountId,
         cancel_cutoff_ms: t0 + MINUTE, rsvp_closes_at_ms: opens, checkin_opens_at_ms: opens,
@@ -169,12 +74,10 @@ test("a fresh browser key RSVPs through the faucet, the event runs through the r
       },
     }, BigInt(await view.storageCost(capacity)))) as number;
 
-    const balance = async (accountId: string) =>
-      BigInt((await provider.callFunction({ contractId: usdc.accountId, method: "ft_balance_of", args: { account_id: accountId } })) as string);
     const tickets = { alice: Ticket.generate(), bob: Ticket.generate(), carol: Ticket.generate() };
     for (const [name, holder] of [["bob", bob], ["carol", carol]] as const) {
       const note = tickets[name].rsvpNote(id, `near:${holder.accountId}`);
-      await call(holder, usdc.accountId, "ft_transfer_call", { receiver_id: bail.accountId, amount: String(USDC), msg: note }, 1n);
+      await sb.call(holder, usdc.accountId, "ft_transfer_call", { receiver_id: bail.accountId, amount: String(USDC), msg: note }, 1n);
     }
 
     // Alice is a fresh browser key: no account, no NEAR, no tokens.
@@ -209,8 +112,8 @@ test("a fresh browser key RSVPs through the faucet, the event runs through the r
     assert.equal((await view.event(id))!.registered, 2);
     assert.equal(await view.owed(id, `near:${bob.accountId}`), "0", "the relayer claimed Bob's refund");
 
-    await advanceTo(opens);
-    await call(organizer, bail.accountId, "open_slot", {
+    await sb.advanceTo(view, opens);
+    await sb.call(organizer, bail.accountId, "open_slot", {
       event_id: id, slot: 0, commitment: toBase64(codeCommitment(bail.accountId, id, 0, CODE)),
     });
     const caught = await relay("catch", tickets.alice.catch(bail.accountId, id, 0, 1, CODE).args);
@@ -220,10 +123,9 @@ test("a fresh browser key RSVPs through the faucet, the event runs through the r
     assert.equal(forged.status, 400, "a catch signed by one ticket can't be relayed for another");
 
     const opened = (await view.event(id))!.slots[0]!.opened_at_ms;
-    await advanceTo(opened + MINUTE);
-    await call(carol, bail.accountId, "reveal", { event_id: id, slot: 0, code: CODE });
-    const event = (await view.event(id))!;
-    await advanceTo(event.schedule.dispute_ends_at_ms);
+    await sb.advanceTo(view, opened + MINUTE);
+    await sb.call(carol, bail.accountId, "reveal", { event_id: id, slot: 0, code: CODE });
+    await sb.advanceTo(view, (await view.event(id))!.schedule.dispute_ends_at_ms);
 
     // Nobody calls tally, payout or close: the keeper does it all.
     keeper = new Keeper({ chain, view, closeDelayMs: 0, log: () => {} });
@@ -235,7 +137,6 @@ test("a fresh browser key RSVPs through the faucet, the event runs through the r
     assert.ok(settled.closed, "the keeper closed the event");
     assert.equal(settled.tally!.attended, 1);
     assert.equal(settled.tally!.forfeited, 1);
-
     assert.equal(await balance(alice.accountId), 2n * USDC, "Alice gets her deposit and Carol's");
     assert.equal(await balance(bob.accountId), USDC, "Bob's cancellation was refunded in full");
     assert.equal(await balance(carol.accountId), 0n);
@@ -250,7 +151,6 @@ test("a fresh browser key RSVPs through the faucet, the event runs through the r
   } finally {
     keeper?.stop();
     for (const s of servers) s.close();
-    node.kill();
-    rmSync(home, { recursive: true, force: true });
+    sandbox?.stop();
   }
 });

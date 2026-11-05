@@ -19,6 +19,7 @@
     "borsh": "2.0.0"
   },
   "devDependencies": {
+    "@bail/testkit": "0.1.0",
     "@types/node": "24.19.2",
     "typescript": "7.0.2"
   }
