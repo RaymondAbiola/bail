@@ -8,6 +8,7 @@ import {
   text,
   toBase64,
 } from "./codec.ts";
+import { type FunctionCallDelegate, delegateHash, encodeSignedDelegate, implicitAccountId } from "./delegate.ts";
 import { catchProof } from "./hashes.ts";
 import { cancelMessage, catchMessage, flagMessage, vouchMessage } from "./messages.ts";
 import { rsvpNote } from "./notes.ts";
@@ -87,6 +88,17 @@ export class Ticket {
 
   sign(message: string): string {
     return toBase64(ed25519.sign(text(message), this.#seed));
+  }
+
+  /** The implicit NEAR account this key controls, so the ticket can hold and send tokens. */
+  get accountId(): string {
+    return implicitAccountId(this.publicKey);
+  }
+
+  /** Signs a NEP-366 delegate action from the ticket's implicit account, for a relayer to sponsor. */
+  signDelegate(delegate: FunctionCallDelegate): string {
+    if (delegate.publicKey !== this.publicKey) throw new Error("the delegate action names another key");
+    return encodeSignedDelegate(delegate, ed25519.sign(delegateHash(delegate), this.#seed));
   }
 
   rsvpNote(eventId: EventId, payoutTo: string, options = { intents: false }): string {

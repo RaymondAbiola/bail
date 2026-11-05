@@ -7,7 +7,8 @@ TypeScript for everything an attendee or host signs or hashes, byte-identical to
 - `generateCode`, `normalizeCode`, `suggestWords`: five-word live codes from the BIP-39 English list.
 - `codeCommitment`, `catchProof`: the hashes in [ARCHITECTURE.md section 6.10](../../docs/ARCHITECTURE.md#610-signed-messages).
 - `BailView`: typed views over NEAR RPC, and `phase(event, now)` for the lifecycle phase.
-- `RelayerClient`: hands signed actions to a relayer, which pays the gas.
+- `rsvpDelegate`, `Ticket.signDelegate`, `Ticket.accountId`: on testnet the ticket key is also an implicit NEAR account, and its RSVP transfer is a NEP-366 delegate action a relayer sponsors. The encoding is the SDK's own, held byte for byte to near-api-js by `test/delegate.test.ts`.
+- `RelayerClient`: hands signed actions to a relayer, which pays the gas, and on testnet asks its faucet for the deposit and sponsors the RSVP.
 
 ```ts
 import { BailView, TESTNET, Ticket } from "@bail/sdk";

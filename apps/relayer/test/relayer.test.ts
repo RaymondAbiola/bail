@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 
-import { BailView, type Event, Ticket, type TicketRecord } from "@bail/sdk";
+import { BailView, type Event, type FunctionCallDelegate, Ticket, type TicketRecord, rsvpDelegate } from "@bail/sdk";
 
 import type { CallOutcome, Chain } from "../src/chain.ts";
 import { failureMessage } from "../src/chain.ts";
 import { BadRequest, checkAction } from "../src/checks.ts";
 import { Keeper, nextStep } from "../src/keeper.ts";
 import { RateLimit } from "../src/limits.ts";
+import { checkDelegate, checkFaucet } from "../src/onboarding.ts";
 import { relayerServer } from "../src/server.ts";
 
 const CONTRACT = "v1.dontbail.testnet";
@@ -147,7 +148,7 @@ test("the relayer answers clearly when it can't help", async () => {
     assert.equal(huge.status, 413);
     assert.equal((await fetch(`${base}/v1/nope`)).status, 404);
     const health = await (await fetch(`${base}/v1/health`)).json();
-    assert.deepEqual(health, { ok: true, contract: CONTRACT, account: "relayer.testnet" });
+    assert.deepEqual(health, { ok: true, contract: CONTRACT, account: "relayer.testnet", faucet: false });
     const preflight = await fetch(`${base}/v1/catch`, { method: "OPTIONS" });
     assert.equal(preflight.status, 204);
     assert.equal(preflight.headers.get("access-control-allow-origin"), "*");
@@ -218,4 +219,61 @@ test("the keeper settles an event by itself, halving a page that runs out of gas
   const before = chain.calls.length;
   await keeper.tick(1000 + 120_000);
   assert.equal(chain.calls.length, before, "a closed event is left alone");
+});
+
+const TOKEN = "usdc.testnet";
+const open = event({ token: TOKEN, schedule: { ...event().schedule, rsvp_closes_at_ms: 500 } });
+
+function signedRsvp(changes: Partial<FunctionCallDelegate> = {}, signer = alice): string {
+  const delegate = rsvpDelegate({
+    publicKey: alice.publicKey, token: TOKEN, contractId: CONTRACT, deposit: "1000000",
+    note: alice.rsvpNote(3, `near:${alice.accountId}`), nonce: 9n, maxBlockHeight: 2000n,
+  });
+  return signer.signDelegate({ ...delegate, ...changes });
+}
+
+const context = (overrides: Partial<Parameters<typeof checkDelegate>[1]> = {}) => ({
+  contractId: CONTRACT, eventId: 3, event: open, nowMs: 100, finalHeight: 1000n, ...overrides,
+});
+
+test("an exact RSVP transfer from the signer's implicit account is sponsored", () => {
+  const checked = checkDelegate(signedRsvp(), context());
+  assert.equal(checked.senderId, alice.accountId);
+  assert.equal(checked.ticketKey, alice.publicKey);
+});
+
+test("anything other than the exact RSVP transfer is refused", () => {
+  const note = (n: object) => JSON.stringify(n);
+  const cases: [string, unknown, Partial<Parameters<typeof checkDelegate>[1]>, RegExp][] = [
+    ["another method", signedRsvp({ methodName: "ft_transfer" }), {}, /ft_transfer_call/],
+    ["another token", signedRsvp({ receiverId: "wrap.testnet" }), {}, /token/],
+    ["another sender", signedRsvp({ senderId: bob.accountId }), {}, /implicit account/],
+    ["not to Bail", signedRsvp({ args: { receiver_id: "thief.testnet", amount: "1000000", msg: alice.rsvpNote(3, "near:a.testnet") } }), {}, /go to Bail/],
+    ["a bigger amount", signedRsvp({ args: { receiver_id: CONTRACT, amount: "5000000", msg: alice.rsvpNote(3, "near:a.testnet") } }), {}, /exactly/],
+    ["extra arguments", signedRsvp({ args: { receiver_id: CONTRACT, amount: "1000000", msg: alice.rsvpNote(3, "near:a.testnet"), memo: "x" } }), {}, /unexpected/],
+    ["another event's note", signedRsvp({ args: { receiver_id: CONTRACT, amount: "1000000", msg: alice.rsvpNote(4, "near:a.testnet") } }), {}, /another event/],
+    ["an unpayable address", signedRsvp({ args: { receiver_id: CONTRACT, amount: "1000000", msg: note({ event_id: 3, ticket_key: alice.publicKey, payout_to: "near:Bad" }) } }), {}, /payable/],
+    ["more gas", signedRsvp({ gas: 300_000_000_000_000n }), {}, /100 Tgas/],
+    ["more yoctoNEAR", signedRsvp({ deposit: 2n }), {}, /1 yoctoNEAR/],
+    ["an expired delegate", signedRsvp(), { finalHeight: 2000n }, /expired/],
+    ["a closed event", signedRsvp(), { nowMs: 500 }, /not taking RSVPs/],
+    ["a missing event", signedRsvp(), { event: null }, /not taking RSVPs/],
+    ["trailing bytes", Buffer.concat([Buffer.from(signedRsvp(), "base64"), Buffer.of(0)]).toString("base64"), {}, /NEP-366|canonical/],
+    ["garbage", "AAAA", {}, /NEP-366/],
+    ["no string", 7, {}, /base64/],
+  ];
+  for (const [name, encoded, overrides, error] of cases) {
+    assert.throws(() => checkDelegate(encoded, context(overrides)), error, name);
+  }
+  const tampered = Buffer.from(signedRsvp(), "base64");
+  tampered[tampered.length - 1] ^= 1;
+  assert.throws(() => checkDelegate(tampered.toString("base64"), context()), /signature/);
+});
+
+test("the faucet funds only implicit accounts for open events in its own token", () => {
+  assert.deepEqual(checkFaucet({ account_id: alice.accountId }, open, TOKEN, 100), { accountId: alice.accountId, amount: 1_000_000n });
+  assert.throws(() => checkFaucet({ account_id: "alice.testnet" }, open, TOKEN, 100), /implicit/);
+  assert.throws(() => checkFaucet({ account_id: alice.accountId }, open, TOKEN, 500), /not taking RSVPs/);
+  assert.throws(() => checkFaucet({ account_id: alice.accountId }, open, "wrap.testnet", 100), /test USDC/);
+  assert.throws(() => checkFaucet({ account_id: alice.accountId }, { ...open, deposit: "6000000" }, TOKEN, 100), /5 USDC/);
 });

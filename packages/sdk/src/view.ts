@@ -98,16 +98,41 @@ export class BailView {
     return this.call("contract_source_metadata");
   }
 
-  /** The latest block's time in milliseconds: the clock the contract's deadlines use. */
-  async now(): Promise<number> {
+  async rpc<T>(method: string, params: object): Promise<T> {
     const response = await fetch(this.rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: "now", method: "block", params: { finality: "optimistic" } }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: method, method, params }),
     });
-    const reply = (await response.json()) as { result?: { header: { timestamp_nanosec: string } } };
-    if (!reply.result) throw new Error("block: no result");
-    return Number(BigInt(reply.result.header.timestamp_nanosec) / 1_000_000n);
+    const reply = (await response.json()) as { result?: T; error?: unknown };
+    if (reply.result === undefined) throw new Error(`${method}: ${JSON.stringify(reply.error)}`);
+    return reply.result;
+  }
+
+  /** The latest block's time in milliseconds: the clock the contract's deadlines use. */
+  async now(): Promise<number> {
+    const block = await this.rpc<{ header: { timestamp_nanosec: string } }>("block", { finality: "optimistic" });
+    return Number(BigInt(block.header.timestamp_nanosec) / 1_000_000n);
+  }
+
+  async finalHeight(): Promise<bigint> {
+    const block = await this.rpc<{ header: { height: number } }>("block", { finality: "final" });
+    return BigInt(block.header.height);
+  }
+
+  /** The nonce of an access key, or null if the account or key doesn't exist yet. */
+  async accessKeyNonce(accountId: string, publicKey: string): Promise<bigint | null> {
+    try {
+      const key = await this.rpc<{ nonce: number }>("query", {
+        request_type: "view_access_key",
+        finality: "optimistic",
+        account_id: accountId,
+        public_key: publicKey,
+      });
+      return BigInt(key.nonce);
+    } catch {
+      return null;
+    }
   }
 }
 

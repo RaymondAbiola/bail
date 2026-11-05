@@ -5,6 +5,7 @@ import type { BailView } from "@bail/sdk";
 import type { Chain } from "./chain.ts";
 import { BadRequest, checkAction, type Checked } from "./checks.ts";
 import { RateLimit } from "./limits.ts";
+import { type Sponsor, checkDelegate, checkFaucet } from "./onboarding.ts";
 
 const MAX_BODY = 4096;
 const ACTION_TGAS = 30;
@@ -16,6 +17,9 @@ export interface ServerOptions {
   allowOrigin?: string;
   perIp?: RateLimit;
   perTicket?: RateLimit;
+  /** Testnet only: funds new accounts and sponsors RSVP transfers. */
+  sponsor?: Sponsor;
+  faucetPerIp?: RateLimit;
   log?: (line: string) => void;
 }
 
@@ -53,6 +57,46 @@ export function relayerServer(options: ServerOptions): Server {
   const perIp = options.perIp ?? new RateLimit(60, 60_000);
   const perTicket = options.perTicket ?? new RateLimit(12, 60_000);
   const log = options.log ?? ((line) => console.log(line));
+  const faucetPerIp = options.faucetPerIp ?? new RateLimit(5, 3_600_000);
+  const funded = new Set<string>();
+
+  async function faucet(body: unknown, ip: string): Promise<{ status: number; body: object }> {
+    const sponsor = options.sponsor;
+    if (!sponsor) throw new HttpError(404, "this relayer has no faucet");
+    const b = (body ?? {}) as Record<string, unknown>;
+    const eventId = typeof b.event_id === "number" ? b.event_id : -1;
+    const event = eventId >= 0 ? await options.view.event(eventId) : null;
+    const { accountId, amount } = checkFaucet(body, event, sponsor.token, await options.view.now());
+    if (funded.has(`${eventId}/${accountId}`)) throw new HttpError(429, "this account was already funded for this event");
+    if (!faucetPerIp.allow(ip)) throw new HttpError(429, "too many faucet requests from this address");
+    funded.add(`${eventId}/${accountId}`);
+    const outcome = await sponsor.fund(accountId, amount);
+    log(`faucet event=${eventId} account=${accountId} ok=${outcome.ok} tx=${outcome.tx}`);
+    if (!outcome.ok) {
+      funded.delete(`${eventId}/${accountId}`);
+      return { status: 422, body: { error: outcome.error, tx: outcome.tx } };
+    }
+    return { status: 200, body: { tx: outcome.tx } };
+  }
+
+  async function meta(body: unknown): Promise<{ status: number; body: object }> {
+    const sponsor = options.sponsor;
+    if (!sponsor) throw new HttpError(404, "this relayer sponsors no transfers");
+    const b = (body ?? {}) as Record<string, unknown>;
+    const eventId = typeof b.event_id === "number" ? b.event_id : -1;
+    const { view } = options;
+    const [event, nowMs, finalHeight] = await Promise.all([
+      eventId >= 0 ? view.event(eventId) : null,
+      view.now(),
+      view.finalHeight(),
+    ]);
+    const checked = checkDelegate(b.signed_delegate, { contractId: options.contractId, eventId, event, nowMs, finalHeight });
+    const outcome = await sponsor.relay(checked.decoded, checked.senderId);
+    const seated = outcome.ok && (await view.ticket(eventId, checked.ticketKey)) !== null;
+    log(`meta event=${eventId} sender=${checked.senderId} ok=${outcome.ok} seated=${seated} tx=${outcome.tx}`);
+    if (!outcome.ok) return { status: 422, body: { error: outcome.error, tx: outcome.tx } };
+    return { status: 200, body: { tx: outcome.tx, seated } };
+  }
 
   async function submit(checked: Checked): Promise<{ status: number; body: object }> {
     const { view, chain } = options;
@@ -72,11 +116,17 @@ export function relayerServer(options: ServerOptions): Server {
   async function handle(req: IncomingMessage): Promise<{ status: number; body: object }> {
     const url = new URL(req.url ?? "/", "http://relayer");
     if (req.method === "GET" && url.pathname === "/v1/health") {
-      return { status: 200, body: { ok: true, contract: options.contractId, account: options.chain.accountId } };
+      return {
+        status: 200,
+        body: { ok: true, contract: options.contractId, account: options.chain.accountId, faucet: !!options.sponsor },
+      };
     }
     const route = url.pathname.match(/^\/v1\/([a-z]+)$/);
     if (req.method !== "POST" || !route) throw new HttpError(404, "not found");
-    if (!perIp.allow(clientIp(req))) throw new HttpError(429, "too many requests from this address");
+    const ip = clientIp(req);
+    if (!perIp.allow(ip)) throw new HttpError(429, "too many requests from this address");
+    if (route[1] === "faucet") return faucet(await readJson(req), ip);
+    if (route[1] === "meta") return meta(await readJson(req));
     const checked = checkAction(route[1]!, await readJson(req), options.contractId);
     if (!perTicket.allow(checked.signer)) throw new HttpError(429, "too many requests for this ticket");
     return submit(checked);

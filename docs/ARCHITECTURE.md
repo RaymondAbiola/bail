@@ -312,7 +312,7 @@ At NEAR's storage price (1 NEAR per 100 KB), a 30-seat event prepays about 0.3 N
 - `POST /v1/catch`, `/v1/flag`, `/v1/cancel`, `/v1/vouch` take exactly the contract method's arguments. The relayer checks the fields, the ticket's signature (rebuilt with the SDK, as the contract will) and that the ticket exists, rate-limits per IP and per ticket, then submits with a function-call key limited to Bail's attendee and keeper methods, none of which takes attached NEAR. After a cancellation it claims the refund. Keys come from environment variables and are never logged.
 - Keys form a pool. Each sends one transaction at a time and is held only until that transaction is included, so no key reuses or skips a nonce; results are read afterwards.
 - Keeper loop: judging deadlines by block time, as the contract does, it calls `tally`, `payout` and `close_event` in pages, halving any page that runs out of gas, and waits a minute after the last payout before closing so transfer callbacks settle first.
-- Testnet only: `POST /v1/faucet` creates the attendee's implicit account, registers it with the test USDC contract and sends 1 test USDC. `POST /v1/meta` relays a NEP-366 signed delegate action after checking that it is exactly `ft_transfer_call(bail, D, note)` on the USDC contract.
+- Testnet only, from a separate sponsor account holding a little test NEAR and test USDC: `POST /v1/faucet` turns the attendee's ticket key into an implicit account (its address is the key in hex), registers it with the test USDC contract and sends exactly the event's deposit, once per account and event. `POST /v1/meta` sponsors a NEP-366 signed delegate action only if it is exactly `ft_transfer_call(bail, D, note)` on the event's token: from the implicit account of the key that signed it, with 1 yoctoNEAR and at most 100 Tgas, the event's exact deposit, no other arguments, unexpired, canonically encoded, and a note for this event naming a payable address. The SDK encodes delegate actions itself, held byte for byte to near-api-js by its tests, so the browser doesn't need near-api-js.
 - Anyone can run a relayer, and attendees can also call the contract directly. A relayer can delay an action but cannot forge or change one.
 
 ### 7.3 Host console (`apps/host`, CLI)
@@ -335,7 +335,7 @@ Every diagram in this document is an SVG image, so it shows in any markdown view
 
 ### 8.1 RSVP on testnet
 
-![RSVP on testnet. The web app creates a ticket key, the relayer's faucet sends 1 test USDC, the attendee signs a delegate action, and the relayer submits it so the deposit reaches Bail with the RSVP note.](images/rsvp-testnet.svg)
+![RSVP on testnet. The web app creates a ticket key, the relayer's faucet sends the deposit in test USDC, the attendee signs a delegate action, and the relayer submits it so the deposit reaches Bail with the RSVP note.](images/rsvp-testnet.svg)
 
 ### 8.2 RSVP on mainnet from another chain
 
@@ -362,6 +362,7 @@ If the swap fails, 1Click refunds the attendee's own Solana address automaticall
 | Organizer locks deposits for months | organizer | A maximum total event length, fixed at contract init. | None |
 | An app's login key cancels an event | anyone holding such a key | `cancel_event` needs 1 yoctoNEAR attached, which only a full-access key can do. | None |
 | Sock-puppet tickets that genuinely catch codes | anyone | Each costs a full deposit, and they can only share the pool funded by real no-shows. An honest attendee's deposit is never at risk. | They dilute the bonus. Reputation weighting is the long-term answer (section 16). |
+| Faucet drained (testnet) | anyone | One deposit per account and event, five requests per IP an hour, deposits up to 5 USDC, and only for events taking RSVPs. The sponsor is its own account, kept small, so the relayer's keys and the contract are never at stake. | Someone with many IPs can drain test tokens; refilling costs nothing. |
 | Seat squatting | anyone | Each seat locks a full deposit until the event ends. | Someone with enough capital can fill an event. Organizer approval and reputation are the long-term answer. |
 | Relaying the code to an absent friend | attendees | Short windows, separate moments, a 2-of-3 requirement and small deposits make it not worth the effort. | Can't be fully prevented online. In-person door mode (section 16) is stronger. |
 | Copying someone's proof | anyone | Proofs are bound to the ticket key. | None |

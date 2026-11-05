@@ -6,11 +6,15 @@
 // PORT             default 8787
 // ALLOW_ORIGIN     the web app's origin, default *
 // KEEPER           set to "off" to run the relayer without the keeper
+// SPONSOR_ACCOUNT  testnet only: an account holding test NEAR and test USDC for onboarding
+// SPONSOR_KEY      its full-access secret key (never logged)
+// BAIL_TOKEN       default Circle's test USDC
 
 import { BailView, TESTNET } from "@bail/sdk";
 
-import { NearChain } from "./chain.ts";
+import { NearChain, Sender } from "./chain.ts";
 import { Keeper } from "./keeper.ts";
+import { Sponsor } from "./onboarding.ts";
 import { relayerServer } from "./server.ts";
 
 const env = process.env;
@@ -31,7 +35,16 @@ const chain = new NearChain({
 const view = new BailView({ contractId, rpcUrl });
 const port = Number(env.PORT ?? 8787);
 
-relayerServer({ chain, view, contractId, allowOrigin: env.ALLOW_ORIGIN }).listen(port, () => {
-  console.log(`relayer for ${contractId} as ${chain.accountId} with ${chain.keyCount} keys on :${port}`);
+const sponsor = env.SPONSOR_ACCOUNT
+  ? new Sponsor(
+      new Sender({ accountId: env.SPONSOR_ACCOUNT, rpcUrl, keys: [required("SPONSOR_KEY")] }),
+      env.BAIL_TOKEN ?? TESTNET.token,
+      view,
+    )
+  : undefined;
+
+relayerServer({ chain, view, contractId, sponsor, allowOrigin: env.ALLOW_ORIGIN }).listen(port, () => {
+  const faucet = sponsor ? `, faucet from ${sponsor.sender.accountId}` : "";
+  console.log(`relayer for ${contractId} as ${chain.accountId} with ${chain.keyCount} keys${faucet} on :${port}`);
 });
 if (env.KEEPER !== "off") new Keeper({ chain, view }).start();

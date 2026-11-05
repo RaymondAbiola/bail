@@ -15,7 +15,8 @@
     "@bail/sdk": "0.1.0",
     "@noble/curves": "2.4.0",
     "near-api-js": "7.3.1",
-    "@noble/hashes": "2.4.0"
+    "@noble/hashes": "2.4.0",
+    "borsh": "2.0.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

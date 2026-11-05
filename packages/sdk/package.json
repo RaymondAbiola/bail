@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "24.19.2",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "near-api-js": "7.3.1"
   }
 }

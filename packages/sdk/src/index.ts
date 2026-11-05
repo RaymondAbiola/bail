@@ -7,6 +7,15 @@ export {
   toHex,
 } from "./codec.ts";
 export { CODE_WORDS, MAX_CODE_LEN, checkedCode, generateCode, normalizeCode, suggestWords, wordlist } from "./codes.ts";
+export {
+  type FunctionCallDelegate,
+  RSVP_GAS,
+  delegateHash,
+  encodeDelegateAction,
+  encodeSignedDelegate,
+  implicitAccountId,
+  rsvpDelegate,
+} from "./delegate.ts";
 export { catchProof, codeCommitment } from "./hashes.ts";
 export { cancelMessage, catchMessage, flagMessage, vouchMessage } from "./messages.ts";
 export { MAX_PAYOUT_LEN, isAccountId, isPayoutAddress, rsvpNote } from "./notes.ts";

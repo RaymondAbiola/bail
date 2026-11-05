@@ -12,12 +12,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { BailView, Ticket, codeCommitment, toBase64 } from "@bail/sdk";
+import { BailView, type FunctionCallDelegate, Ticket, codeCommitment, rsvpDelegate, toBase64 } from "@bail/sdk";
 import { Account, JsonRpcProvider, KeyPair, KeyPairSigner, actions, nearToYocto, teraToGas } from "near-api-js";
 import type { KeyPairString } from "near-api-js";
 
-import { NearChain, RELAYER_METHODS } from "../src/chain.ts";
+import { NearChain, RELAYER_METHODS, Sender } from "../src/chain.ts";
 import { Keeper } from "../src/keeper.ts";
+import { Sponsor } from "../src/onboarding.ts";
 import { relayerServer } from "../src/server.ts";
 
 const bin = process.env.NEAR_SANDBOX_BIN;
@@ -36,7 +37,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-test("an event runs through the relayer and the keeper settles it by itself", { skip: !bin, timeout: 900_000 }, async () => {
+test("a fresh browser key RSVPs through the faucet, the event runs through the relayer, and the keeper settles it", { skip: !bin, timeout: 900_000 }, async () => {
   const home = mkdtempSync(join(tmpdir(), "bail-relayer-"));
   execFileSync(bin!, ["--home", home, "init"], { stdio: "ignore" });
   const config = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
@@ -60,9 +61,8 @@ test("an event runs through the relayer and the keeper settles it by itself", { 
     const validator = JSON.parse(readFileSync(join(home, "validator_key.json"), "utf8"));
     const rootAccount = new Account(validator.account_id, provider, validator.secret_key as KeyPairString);
 
-    async function newAccount(name: string, near: `${number}`, extraKeys: KeyPair[] = []): Promise<Account> {
+    async function newAccount(name: string, near: `${number}`, extraKeys: KeyPair[] = [], key = KeyPair.fromRandom("ed25519")): Promise<Account> {
       const id = `${name}.${validator.account_id}`;
-      const key = KeyPair.fromRandom("ed25519");
       await rootAccount.signAndSendTransaction({
         receiverId: id,
         actions: [
@@ -80,13 +80,14 @@ test("an event runs through the relayer and the keeper settles it by itself", { 
       from.callFunction({ contractId, methodName, args, deposit, gas: teraToGas(tgas) });
 
     const relayerKeys = [KeyPair.fromRandom("ed25519"), KeyPair.fromRandom("ed25519")];
-    const [bail, usdc, organizer, arbiter, relayer, alice, bob, carol] = await Promise.all([
+    const sponsorKey = KeyPair.fromRandom("ed25519");
+    const [bail, usdc, organizer, arbiter, relayer, faucet, bob, carol] = await Promise.all([
       newAccount("bail", "10"),
       newAccount("usdc", "10"),
       newAccount("organizer", "10"),
       newAccount("arbiter", "1"),
       newAccount("relayer", "10", relayerKeys),
-      newAccount("alice", "1"),
+      newAccount("faucet", "10", [], sponsorKey),
       newAccount("bob", "1"),
       newAccount("carol", "1"),
     ]);
@@ -109,11 +110,11 @@ test("an event runs through the relayer and the keeper settles it by itself", { 
         actions.functionCall("new", { owner_id: usdc.accountId, total_supply: String(100n * USDC) }, teraToGas(30)),
       ],
     });
-    for (const holder of [bail, alice, bob, carol]) {
+    for (const holder of [bail, faucet, bob, carol]) {
       await call(usdc, usdc.accountId, "storage_deposit", { account_id: holder.accountId }, nearToYocto("0.00125"));
     }
-    for (const holder of [alice, bob, carol]) {
-      await call(usdc, usdc.accountId, "ft_transfer", { receiver_id: holder.accountId, amount: String(USDC) }, 1n);
+    for (const [holder, amount] of [[faucet, 10n * USDC], [bob, USDC], [carol, USDC]] as const) {
+      await call(usdc, usdc.accountId, "ft_transfer", { receiver_id: holder.accountId, amount: String(amount) }, 1n);
     }
 
     const view = new BailView({ contractId: bail.accountId, rpcUrl });
@@ -123,14 +124,15 @@ test("an event runs through the relayer and the keeper settles it by itself", { 
       rpcUrl,
       keys: relayerKeys.map((k) => k.toString()),
     });
-    const server = relayerServer({ chain, view, contractId: bail.accountId, log: () => {} });
+    const sponsor = new Sponsor(new Sender({ accountId: faucet.accountId, rpcUrl, keys: [sponsorKey.toString()] }), usdc.accountId, view);
+    const server = relayerServer({ chain, view, contractId: bail.accountId, sponsor, log: () => {} });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     servers.push(server);
     const relayerUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const relay = (kind: string, args: object) =>
       fetch(`${relayerUrl}/v1/${kind}`, { method: "POST", body: JSON.stringify(args) }).then(async (r) => ({
         status: r.status,
-        body: await r.json(),
+        body: (await r.json()) as Record<string, unknown>,
       }));
 
     const rpc = (method: string, params: object) =>
@@ -167,12 +169,40 @@ test("an event runs through the relayer and the keeper settles it by itself", { 
       },
     }, BigInt(await view.storageCost(capacity)))) as number;
 
+    const balance = async (accountId: string) =>
+      BigInt((await provider.callFunction({ contractId: usdc.accountId, method: "ft_balance_of", args: { account_id: accountId } })) as string);
     const tickets = { alice: Ticket.generate(), bob: Ticket.generate(), carol: Ticket.generate() };
-    for (const [name, holder] of [["alice", alice], ["bob", bob], ["carol", carol]] as const) {
+    for (const [name, holder] of [["bob", bob], ["carol", carol]] as const) {
       const note = tickets[name].rsvpNote(id, `near:${holder.accountId}`);
       await call(holder, usdc.accountId, "ft_transfer_call", { receiver_id: bail.accountId, amount: String(USDC), msg: note }, 1n);
     }
+
+    // Alice is a fresh browser key: no account, no NEAR, no tokens.
+    const alice = tickets.alice;
+    assert.equal(await view.accessKeyNonce(alice.accountId, alice.publicKey), null);
+    const funded = await relay("faucet", { account_id: alice.accountId, event_id: id });
+    assert.equal(funded.status, 200, JSON.stringify(funded.body));
+    assert.equal(await balance(alice.accountId), USDC, "the faucet sends exactly one deposit");
+    assert.equal((await relay("faucet", { account_id: alice.accountId, event_id: id })).status, 429, "once per account");
+
+    const signRsvp = async (changes: Partial<FunctionCallDelegate> = {}) => {
+      const nonce = (await view.accessKeyNonce(alice.accountId, alice.publicKey))!;
+      const delegate = rsvpDelegate({
+        publicKey: alice.publicKey, token: usdc.accountId, contractId: bail.accountId, deposit: String(USDC),
+        note: alice.rsvpNote(id, `near:${alice.accountId}`), nonce: nonce + 1n, maxBlockHeight: (await view.finalHeight()) + 1000n,
+      });
+      return alice.signDelegate({ ...delegate, ...changes });
+    };
+    const stealing = await signRsvp({ methodName: "ft_transfer", args: { receiver_id: carol.accountId, amount: String(USDC) } });
+    assert.equal((await relay("meta", { event_id: id, signed_delegate: stealing })).status, 400, "only RSVPs are sponsored");
+    const signed = await signRsvp();
+    const paid = await relay("meta", { event_id: id, signed_delegate: signed });
+    assert.equal(paid.status, 200, JSON.stringify(paid.body));
+    assert.equal(paid.body.seated, true);
+    const replay = await relay("meta", { event_id: id, signed_delegate: signed });
+    assert.equal(replay.status, 422, "a signed delegate can't be replayed");
     assert.equal((await view.event(id))!.registered, 3);
+    assert.equal(await balance(alice.accountId), 0n);
 
     const cancelled = await relay("cancel", tickets.bob.cancel(bail.accountId, id).args);
     assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
@@ -206,12 +236,10 @@ test("an event runs through the relayer and the keeper settles it by itself", { 
     assert.equal(settled.tally!.attended, 1);
     assert.equal(settled.tally!.forfeited, 1);
 
-    const balance = async (who: Account) =>
-      BigInt((await usdc.provider.callFunction({ contractId: usdc.accountId, method: "ft_balance_of", args: { account_id: who.accountId } })) as string);
-    assert.equal(await balance(alice), 2n * USDC, "Alice gets her deposit and Carol's");
-    assert.equal(await balance(bob), USDC, "Bob's cancellation was refunded in full");
-    assert.equal(await balance(carol), 0n);
-    assert.equal(await balance(bail), 0n, "the contract holds nothing back");
+    assert.equal(await balance(alice.accountId), 2n * USDC, "Alice gets her deposit and Carol's");
+    assert.equal(await balance(bob.accountId), USDC, "Bob's cancellation was refunded in full");
+    assert.equal(await balance(carol.accountId), 0n);
+    assert.equal(await balance(bail.accountId), 0n, "the contract holds nothing back");
 
     // Function-call keys are charged up front for the gas they attach; check none ran dry.
     for (const key of relayerKeys) {
