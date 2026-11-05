@@ -97,6 +97,18 @@ export class BailView {
   sourceMetadata(): Promise<SourceMetadata> {
     return this.call("contract_source_metadata");
   }
+
+  /** The latest block's time in milliseconds: the clock the contract's deadlines use. */
+  async now(): Promise<number> {
+    const response = await fetch(this.rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: "now", method: "block", params: { finality: "optimistic" } }),
+    });
+    const reply = (await response.json()) as { result?: { header: { timestamp_nanosec: string } } };
+    if (!reply.result) throw new Error("block: no result");
+    return Number(BigInt(reply.result.header.timestamp_nanosec) / 1_000_000n);
+  }
 }
 
 export type Phase = "Open" | "CheckIn" | "Reveal" | "Dispute" | "Tally" | "Settled" | "Closed";

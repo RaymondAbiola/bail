@@ -15,6 +15,7 @@ test("the deployed contract runs the published source with the testnet config", 
   const source = await view.sourceMetadata();
   assert.match(source.link ?? "", /^https:\/\/github\.com\/RaymondAbiola\/bail\/tree\/[0-9a-f]{40}$/);
   assert.equal(await view.storageCost(30), "320000000000000000000000");
+  assert.ok(Math.abs((await view.now()) - Date.now()) < 120_000, "block time is close to the wall clock");
 });
 
 test("events and tickets read back as typed views", { skip: !live }, async () => {

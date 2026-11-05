@@ -57,7 +57,7 @@ What is being built, in order. Each stage builds on the one before it. The desig
 ## 6. Apps (in progress)
 
 - [x] TypeScript SDK, byte-identical to the contract, checked against test vectors the contract's own code builds
-- [ ] Relayer and keeper, so attendees pay no NEAR gas and events settle themselves
+- [x] Relayer and keeper, so attendees pay no NEAR gas and events settle themselves
 - [ ] Testnet onboarding with a faucet and meta transactions, starting from a fresh browser with no NEAR
 - [ ] Host console to create events, run live codes, reveal them and report results
 - [ ] Web app: event page, RSVP, live check-in, results and organizer view

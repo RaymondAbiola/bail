@@ -39,6 +39,21 @@ jobs:
       - name: Build the contract wasm
         run: cargo near build non-reproducible-wasm --manifest-path contracts/bail/Cargo.toml
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Reuses the near-sandbox binary the sandbox tests downloaded.
+      - name: Relayer and keeper run an event on a local NEAR node
+        run: |
+          cargo near build non-reproducible-wasm --manifest-path contracts/test-token/Cargo.toml
+          export NEAR_SANDBOX_BIN=$(find "$PWD/target" -type f -name near-sandbox -perm -u+x | head -1)
+          test -n "$NEAR_SANDBOX_BIN"
+          cd apps/relayer && node --test test/sandbox.test.ts
+
   kickback:
     name: Kickback comparison
     runs-on: ubuntu-24.04
@@ -55,8 +70,8 @@ jobs:
         working-directory: tests/kickback
         run: forge test -vv
 
-  sdk:
-    name: SDK
+  typescript:
+    name: SDK and relayer
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -69,9 +84,12 @@ jobs:
       - run: npm ci
 
       - name: Type check
-        working-directory: packages/sdk
-        run: npm run typecheck
+        run: npm run typecheck --workspaces
 
-      - name: Test vectors built by the contract, and SDK tests
+      - name: SDK tests, with test vectors built by the contract
         working-directory: packages/sdk
         run: npm test
+
+      - name: Relayer and keeper tests
+        working-directory: apps/relayer
+        run: node --test test/relayer.test.ts
