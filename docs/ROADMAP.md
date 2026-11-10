@@ -60,7 +60,7 @@ What is being built, in order. Each stage builds on the one before it. The desig
 - [x] Relayer and keeper, so attendees pay no NEAR gas and events settle themselves
 - [x] Testnet onboarding with a faucet and meta transactions, starting from a fresh browser with no NEAR
 - [x] Host console to create events, run live codes, reveal them and report results
-- [ ] Web app: event page, RSVP, live check-in, results and organizer view
+- [x] Web app: event page, RSVP, live check-in, results and organizer view
 
 ## 7. Any chain
 

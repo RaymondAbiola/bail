@@ -321,13 +321,16 @@ At NEAR's storage price (1 NEAR per 100 KB), a 30-seat event prepays about 0.3 N
 
 ### 7.4 Web app (`apps/web`)
 
-- **Event page:** details, seats left, deposit, timeline, and the rules in plain words, including who the arbiter is and what fee applies.
-- **RSVP:** creates the ticket key and offers a backup. On testnet: get 1 test USDC, then pay. On mainnet: pick a chain and token, get a 1Click quote, pay to the deposit address, and watch the status until "You're in".
-- **Live check-in:** shows when a code window is open with a countdown, autocompletes the code from the word list, lets you fix a typo before the window closes, offers a "No code was shown" flag, and shows "Caught 2 of 3".
-- **Results:** your payout, the event's show-up rate, and your reliability badge.
-- **Organizer view:** live headcount and catches per slot.
+A static site (Vite, React, TypeScript, plain CSS, and the browser-safe SDK). It reads the chain over public RPC with failover and writes through the relayer, and is configured by a `config.json` beside it, so one build serves any deployment. It is built phone first, because attendees type codes on a phone while watching the call.
 
-It reads the chain through RPC views and writes through the relayer. The visual design comes from the project owner's direction before it's built.
+- **Event page:** what the event is, when check-in opens in the viewer's timezone, seats, deposit, how it works in plain words, the named arbiter, the fixed schedule and public evidence. It needs no ticket. Titles and call links come only from `config.json`, because the contract stores none.
+- **RSVP:** terms and a payout address, then a full-screen key backup, then payment. The ticket key is made in the browser, shown only on request, and never sent anywhere. Every step reads the chain first, so a retry after a failure or lost reply cannot pay twice or make a second ticket. A deposit that reaches Bail without a seat is reported as owed, not as refunded.
+- **Live check-in:** when a code opens, it takes over the screen with a countdown and one input for the five words, word-list suggestions that never take focus from the input, "sent" distinguished from "confirmed after the host reveals the code" (decided by the contract's own proof check), corrections with rising attempt numbers, and a "the host did not show a code" flag that is labelled as evidence for the arbiter.
+- **Dispute and results:** the viewer's standing, vouching, then outcome, payout and whether it was actually paid. Results are kept in the browser, because closing an event frees the onchain ticket record.
+- **Organizer view:** public and read only: headcount and per-code activity, labelled with when it was read.
+- **Other chain:** a marked placeholder, "Planned for mainnet". Nothing there works yet.
+
+The ticket key lives in the browser's local storage per event, falling back to memory (with a warning) if storage is blocked. The end-to-end test, `apps/web/e2e/run.ts`, builds the site and drives it in headless Chrome at phone size against a private NEAR node running the compiled contract, the relayer and the keeper, through a whole event. Setup and commands are in [apps/web/README.md](../apps/web/README.md).
 
 ## 8. Flows
 
@@ -406,7 +409,7 @@ If the swap fails, 1Click refunds the attendee's own Solana address automaticall
 
 The property test was itself checked by planting bugs: giving vouched tickets a bonus, and making qualification one catch stricter. It caught both and shrank each to a minimal failing history; those histories are kept in `contracts/bail/proptest-regressions` and replayed on every run.
 
-Continuous integration (`.github/workflows/ci.yml`) runs on every push: formatting, lints with warnings as errors, the unit and property tests with 1,000 cases, the sandbox tests, the wasm build, the Kickback test after checking the copied source against its SHA-256 hashes, and the SDK's and relayer's type checks and tests, including the relayer and keeper running an event on a local NEAR node.
+Continuous integration (`.github/workflows/ci.yml`) runs on every push: formatting, lints with warnings as errors, the unit and property tests with 1,000 cases, the sandbox tests, the wasm build, the Kickback test after checking the copied source against its SHA-256 hashes, and the SDK's, relayer's, host console's and web app's type checks and tests, including the relayer, keeper, host console and web app running events on a local NEAR node, the last of them driven in headless Chrome at phone size.
 
 The contract's `Cargo.toml` pins its reproducible build to a Docker image by digest. Two builds of the same commit give byte-identical wasm, so anyone can rebuild the deployed contract from this repository and compare its hash with the code onchain.
 
