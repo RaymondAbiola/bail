@@ -1,0 +1,72 @@
+# Bail web app
+
+A static site for attendees and observers: look up an event, RSVP with test USDC from a fresh browser, catch live codes on a phone during the call, see results, and read an organizer view. It needs no wallet and no NEAR. It reads the chain over public RPC and sends actions through the Bail relayer.
+
+Vite, React and TypeScript, plain CSS, and the browser-safe `@bail/sdk`. No router, component library, wallet SDK or backend. About 100 KB gzipped.
+
+## Run it
+
+From the repository root:
+
+```bash
+npm ci
+npm run dev -w @bail/web          # http://localhost:5173
+```
+
+It needs a relayer to write through. For testnet, start one as described in [apps/relayer/README.md](../relayer/README.md) (it listens on `http://localhost:8787`, which is the default in `public/config.json`). Reading an event works without one.
+
+Open `http://localhost:5173/#/event/3`, or enter an event number on the front page.
+
+## Configuration
+
+The site reads `config.json` next to `index.html` when it loads, so one build can be pointed at any deployment without rebuilding.
+
+| Key | Required | Meaning |
+|---|---|---|
+| `relayerUrl` | yes | Address of the Bail relayer, such as `https://relay.example.org` |
+| `contractId` | no | Defaults to `v1.dontbail.testnet` |
+| `rpcUrl`, `fallbackUrls` | no | NEAR RPC endpoints. Defaults to FastNEAR's testnet host, with its archival host and drpc as fallbacks |
+| `token` | no | Defaults to Circle's test USDC |
+| `explorerUrl` | no | Such as `https://testnet.nearblocks.io`. Transaction and contract links appear only if set |
+| `defaultEventId` | no | Adds a featured event link to the landing page's event finder |
+| `events` | no | Titles, descriptions and call links the deployer vouches for, by event number: `{ "3": { "title": "...", "callUrl": "..." } }`. The contract stores none of these, so nothing is shown unless supplied here |
+
+A missing or invalid `relayerUrl` shows a setup message instead of a broken page.
+
+## Build and host
+
+```bash
+npm run build -w @bail/web        # writes apps/web/dist
+```
+
+`dist` is plain static files with relative paths and hash routes (`#/event/3`), so it works from any static host or folder with no rewrite rules. Put your `config.json` in it. The relayer must allow the site's origin; it allows any origin unless `ALLOW_ORIGIN` is set.
+
+## What it does
+
+- **Event page**: what the event is, when check-in opens (in your timezone), seats, deposit, how it works, the named arbiter, fixed schedule and public evidence. Works without a ticket.
+- **RSVP**: terms and payout address, then a full-screen key backup, then payment. The ticket key is created in the browser, shown only on request, and never sent anywhere. Every step reads the chain first, so retrying after any failure or lost reply can't pay twice or make a second ticket.
+- **Check-in**: a countdown to opening, then when a code goes live it takes over the screen: one input for the five words, word-list suggestions that never steal focus, a clear "sent" versus "confirmed after the host reveals the code", corrections with rising attempt numbers, and a "the host did not show a code" flag.
+- **Dispute and results**: standing, vouching for someone whose phone died, then outcome, payout and whether it has actually been paid. Results are saved in the browser, because closing an event frees the on-chain ticket record.
+- **Organizer view** (`#/event/3/organizer`): public, read only headcount and per-code activity.
+- **Other chain**: a clearly marked "Planned for mainnet" placeholder. Nothing there works yet.
+
+The ticket key is kept per event in this browser's local storage. If the browser blocks storage, the key is held in memory and the app says so on the backup screen. It never appears in a URL or a request.
+
+## Tests
+
+```bash
+npm test -w @bail/web             # logic, RSVP orchestration, colour contrast
+npm run typecheck -w @bail/web
+```
+
+The unit tests cover the contract's slot and timing rules, every action's eligibility, money formatting, attempt numbering, storage failure, configuration, and the RSVP orchestration against a fake chain, including lost replies. A contrast test reads the colours from the stylesheet and checks every text pairing against WCAG 4.5:1.
+
+### End to end
+
+```bash
+cargo near build non-reproducible-wasm --manifest-path contracts/bail/Cargo.toml
+cargo near build non-reproducible-wasm --manifest-path contracts/test-token/Cargo.toml
+NEAR_SANDBOX_BIN=<path to near-sandbox> npm run e2e -w @bail/web
+```
+
+This builds the site, starts a private NEAR node with the compiled contract, the real relayer and keeper, and drives the site in headless Chrome at phone size (`CHROME_PATH` if Chrome is not at `/usr/bin/google-chrome`). It runs a whole event: RSVP from an empty browser, key backup, restoring the ticket in a second browser, a live code with a typo and its correction, a flag, vouching, payouts checked against token balances, and the organizer view. It also checks that the Send button is on screen the moment a code goes live, that nothing scrolls sideways at 320px, and that the browser console stays clean. Set `E2E_SHOTS=<folder>` to keep screenshots.
