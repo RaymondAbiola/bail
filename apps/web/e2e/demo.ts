@@ -70,10 +70,12 @@ async function main() {
 
   log("starting a private NEAR node and deploying Bail...");
   const sb = await startSandbox(bin!);
-  process.on("SIGINT", () => {
-    sb.stop();
-    process.exit(0);
-  });
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      sb.stop();
+      process.exit(0);
+    });
+  }
   const relayerKeys = [KeyPair.fromRandom("ed25519"), KeyPair.fromRandom("ed25519")];
   const sponsorKey = KeyPair.fromRandom("ed25519");
   const [bail, usdc, organizer, arbiter, relayer, faucet] = await Promise.all([

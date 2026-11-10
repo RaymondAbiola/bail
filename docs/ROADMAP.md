@@ -72,4 +72,4 @@ What is being built, in order. Each stage builds on the one before it. The desig
 - [ ] Dry run with a small group
 - [ ] A live online event with real attendees on testnet
 - [ ] Published results: RSVPs, show-up rate, payouts and transaction links
-- [ ] README with step-by-step trial instructions, and CLAIMS.md linking every claim to its proof
+- [x] README with step-by-step trial instructions, and CLAIMS.md linking every claim to its proof

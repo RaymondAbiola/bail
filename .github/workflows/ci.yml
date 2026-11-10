@@ -94,7 +94,7 @@ jobs:
 
       - name: Relayer and keeper tests
         working-directory: apps/relayer
-        run: node --test test/relayer.test.ts
+        run: node --test test/relayer.test.ts test/public.test.ts
 
       - name: Host console tests
         working-directory: apps/host

@@ -42,10 +42,22 @@ npm start -w @bail/relayer
 
 Each key sends one transaction at a time, held only until it is included, so four keys relay about four actions a second. `NEAR_RPC`, `PORT`, `ALLOW_ORIGIN` and `KEEPER=off` are optional; see `src/main.ts`.
 
+## Putting it on the internet for an event
+
+`npm run public` runs the relayer and keeper, builds the web app, and puts both behind Cloudflare quick tunnels (no Cloudflare account needed), then checks both public addresses the way an attendee's phone will use them:
+
+```bash
+npm run public -w @bail/relayer -- --event 3 --title "Builders check-in" --call-url https://meet.example/abc
+```
+
+It needs `apps/relayer/.env` from the steps above and a working `cloudflared` (set `CLOUDFLARED=<path>` if it is not on your PATH). It prints the link to send attendees, keeps the machine awake with `systemd-inhibit` while it runs, and restarts a tunnel that drops. The site's `config.json` is written into a temporary copy of the build, so the repository is not touched. `--title`, `--description` and `--call-url` show on that event's page, because the contract stores none of them.
+
+Quick tunnels are free and need no setup, but they have no uptime guarantee and their addresses change every time they start. If a tunnel restarts the new address is printed, and attendees must reload. For a longer-lived deployment, run the relayer on an always-on server and serve `apps/web/dist` from any static host (see [apps/web/README.md](../web/README.md)).
+
 ## Tests
 
 ```bash
-node --test test/relayer.test.ts       # checks, rate limits, every HTTP answer, the keeper's paging
+node --test test/relayer.test.ts test/public.test.ts   # checks, rate limits, every HTTP answer, the keeper's paging, the launch helpers
 NEAR_SANDBOX_BIN=<path> node --test test/sandbox.test.ts
 ```
 
