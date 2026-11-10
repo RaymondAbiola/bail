@@ -70,7 +70,14 @@ export function relayerServer(options: ServerOptions): Server {
     if (funded.has(`${eventId}/${accountId}`)) throw new HttpError(429, "this account was already funded for this event");
     if (!faucetPerIp.allow(ip)) throw new HttpError(429, "too many faucet requests from this address");
     funded.add(`${eventId}/${accountId}`);
-    const outcome = await sponsor.fund(accountId, amount);
+    let outcome;
+    try {
+      outcome = await sponsor.fund(accountId, amount);
+    } catch (error) {
+      // Nothing was confirmed sent, so the attendee must be able to ask again.
+      funded.delete(`${eventId}/${accountId}`);
+      throw error;
+    }
     log(`faucet event=${eventId} account=${accountId} ok=${outcome.ok} tx=${outcome.tx}`);
     if (!outcome.ok) {
       funded.delete(`${eventId}/${accountId}`);

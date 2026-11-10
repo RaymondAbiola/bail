@@ -9,7 +9,7 @@ import { failureMessage } from "../src/chain.ts";
 import { BadRequest, checkAction } from "../src/checks.ts";
 import { Keeper, nextStep } from "../src/keeper.ts";
 import { RateLimit } from "../src/limits.ts";
-import { checkDelegate, checkFaucet } from "../src/onboarding.ts";
+import { type Sponsor, checkDelegate, checkFaucet } from "../src/onboarding.ts";
 import { relayerServer } from "../src/server.ts";
 
 const CONTRACT = "v1.dontbail.testnet";
@@ -276,4 +276,30 @@ test("the faucet funds only implicit accounts for open events in its own token",
   assert.throws(() => checkFaucet({ account_id: alice.accountId }, open, TOKEN, 500), /not taking RSVPs/);
   assert.throws(() => checkFaucet({ account_id: alice.accountId }, open, "wrap.testnet", 100), /test USDC/);
   assert.throws(() => checkFaucet({ account_id: alice.accountId }, { ...open, deposit: "6000000" }, TOKEN, 100), /5 USDC/);
+});
+
+test("a faucet request that failed before funding can be asked again", async () => {
+  let calls = 0;
+  const sponsor = {
+    token: TOKEN,
+    fund: async () => {
+      if (calls++ === 0) throw new Error("the node is down");
+      return { tx: "fundtx", ok: true };
+    },
+  } as unknown as Sponsor;
+  const view = new (class extends FakeView {
+    override async now(): Promise<number> {
+      return 100;
+    }
+  })({ contractId: CONTRACT, rpcUrl: "http://unused" });
+  view.events.set(3, open);
+  const { server, post } = await serve({ view, sponsor });
+  try {
+    const body = { account_id: alice.accountId, event_id: 3 };
+    assert.equal((await post("/v1/faucet", body)).status, 502);
+    assert.deepEqual(await post("/v1/faucet", body), { status: 200, body: { tx: "fundtx" } });
+    assert.equal((await post("/v1/faucet", body)).status, 429, "funded accounts are still refused a second time");
+  } finally {
+    server.close();
+  }
 });
