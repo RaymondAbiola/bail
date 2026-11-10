@@ -1,7 +1,9 @@
 import { type BailView, type Event, type TicketRecord, codeCommitment, generateCode, toBase64 } from "@bail/sdk";
+import { ResilientProvider } from "@bail/sdk/provider";
 import { Account, KeyPair, KeyPairSigner, actions, nearToYocto, teraToGas } from "near-api-js";
 import type { KeyPairString } from "near-api-js";
 
+import { ChainClock } from "./clock.ts";
 import { renderCode, renderWaiting } from "./display.ts";
 import { type EventPlan, buildEvent, randomMoment, slotRange } from "./schedule.ts";
 import { type EventState, loadState, saveState } from "./state.ts";
@@ -56,7 +58,7 @@ export async function grantKey(host: Host, eventId: number): Promise<string> {
 function hostAccount(host: Host, state: EventState): Account {
   if (!state.hostKey) throw new Error(`run grant-key ${state.eventId} first`);
   const signer = new KeyPairSigner(KeyPair.fromString(state.hostKey as KeyPairString));
-  return new Account(state.organizer, host.view.rpcUrl, signer);
+  return new Account(state.organizer, new ResilientProvider([host.view.rpcUrl, ...host.view.fallbackUrls]), signer);
 }
 
 async function callAsHost(account: Account, host: Host, methodName: string, args: object): Promise<void> {
@@ -86,11 +88,8 @@ export async function runLive(host: Host, eventId: number, options: LiveOptions 
   const state = loadState(host.stateDir, host.contractId, eventId);
   const account = hostAccount(host, state);
   const show = options.show ?? ((screen: string) => process.stdout.write(`\x1b[2J\x1b[H${screen}`));
-  const sleepUntil =
-    options.sleepUntil ??
-    (async (ms: number) => {
-      while ((await view.now()) < ms) await new Promise((r) => setTimeout(r, 1000));
-    });
+  const clock = new ChainClock(view);
+  const sleepUntil = options.sleepUntil ?? ((ms: number) => clock.sleepUntil(ms));
 
   let event = (await view.event(eventId))!;
   if (!event) throw new Error(`event ${eventId} does not exist`);
@@ -118,8 +117,12 @@ export async function runLive(host: Host, eventId: number, options: LiveOptions 
       show(renderCode(code, slot, slots, windowEnds - (await view.now())));
       await options.sleepUntil(windowEnds);
     } else {
-      for (let now = await view.now(); now < windowEnds; now = await view.now()) {
-        show(renderCode(code, slot, slots, windowEnds - now));
+      // Count the seconds locally; ask the chain only now and then, and to confirm the end.
+      await clock.sync();
+      for (;;) {
+        const now = await clock.fresh();
+        if (now >= windowEnds && (await clock.sync()) >= windowEnds) break;
+        show(renderCode(code, slot, slots, Math.max(0, windowEnds - now)));
         await new Promise((r) => setTimeout(r, 1000));
       }
     }

@@ -11,7 +11,10 @@ import type {
 
 export const TESTNET = {
   contractId: "v1.dontbail.testnet",
-  rpcUrl: "https://rpc.testnet.near.org",
+  // rpc.testnet.near.org is deprecated and throttled on purpose, and test.rpc.fastnear.com
+  // refuses most requests from one address. Each host throttles separately, so use them in turn.
+  rpcUrl: "https://rpc.testnet.fastnear.com",
+  fallbackUrls: ["https://archival-rpc.testnet.fastnear.com", "https://near-testnet.drpc.org"],
   token: "3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af",
   intents: false,
 } as const;
@@ -20,28 +23,54 @@ export const TESTNET = {
 export class BailView {
   readonly contractId: string;
   readonly rpcUrl: string;
+  readonly fallbackUrls: readonly string[];
 
-  constructor(options: { contractId: string; rpcUrl: string } = TESTNET) {
+  constructor(options: { contractId: string; rpcUrl: string; fallbackUrls?: readonly string[] } = TESTNET) {
     this.contractId = options.contractId;
     this.rpcUrl = options.rpcUrl;
+    this.fallbackUrls = options.fallbackUrls ?? [];
+  }
+
+  /**
+   * One JSON-RPC request. Public endpoints stall and throttle, so a network failure, 429 or
+   * 5xx moves on to the next endpoint at once, and waits (longer each round, up to what the
+   * endpoint asks for, at most 5 seconds) only after every endpoint has been tried.
+   */
+  async #send(method: string, body: object, attempts = 6): Promise<Response> {
+    const urls = [this.rpcUrl, ...this.fallbackUrls];
+    for (let attempt = 1; ; attempt++) {
+      const round = Math.floor((attempt - 1) / urls.length);
+      let wait = attempt % urls.length === 0 ? Math.min(400 * 2 ** round, 5000) : 0;
+      try {
+        const response = await fetch(urls[(attempt - 1) % urls.length]!, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (response.status !== 429 && response.status < 500) return response;
+        if (attempt === attempts) throw new Error(`${method}: RPC answered ${response.status}`);
+        const asked = Number(response.headers.get("retry-after"));
+        if (asked > 0 && wait > 0) wait = Math.min(asked, 5) * 1000;
+      } catch (error) {
+        if (attempt === attempts) throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
   }
 
   async call<T>(method: string, args: object = {}): Promise<T> {
-    const response = await fetch(this.rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: method,
-        method: "query",
-        params: {
-          request_type: "call_function",
-          finality: "optimistic",
-          account_id: this.contractId,
-          method_name: method,
-          args_base64: toBase64(text(JSON.stringify(args))),
-        },
-      }),
+    const response = await this.#send(method, {
+      jsonrpc: "2.0",
+      id: method,
+      method: "query",
+      params: {
+        request_type: "call_function",
+        finality: "optimistic",
+        account_id: this.contractId,
+        method_name: method,
+        args_base64: toBase64(text(JSON.stringify(args))),
+      },
     });
     if (!response.ok) throw new Error(`${method}: RPC answered ${response.status}`);
     const reply = (await response.json()) as {
@@ -99,11 +128,7 @@ export class BailView {
   }
 
   async rpc<T>(method: string, params: object): Promise<T> {
-    const response = await fetch(this.rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: method, method, params }),
-    });
+    const response = await this.#send(method, { jsonrpc: "2.0", id: method, method, params });
     const reply = (await response.json()) as { result?: T; error?: unknown };
     if (reply.result === undefined) throw new Error(`${method}: ${JSON.stringify(reply.error)}`);
     return reply.result;

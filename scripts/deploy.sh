@@ -21,7 +21,13 @@ parent="${1:-dontbail.testnet}"
 version="${2:-v1}"
 contract="$version.$parent"
 network="${NEAR_NETWORK:-testnet}"
-rpc="${NEAR_RPC:-https://rpc.$network.near.org}"
+case "$network" in
+  testnet) default_rpc=https://archival-rpc.testnet.fastnear.com ;;
+  mainnet) default_rpc=https://free.rpc.fastnear.com ;;
+  *) default_rpc="" ;;
+esac
+rpc="${NEAR_RPC:-$default_rpc}"
+[ -n "$rpc" ] || { echo "deploy: set NEAR_RPC for the $network network" >&2; exit 1; }
 token="${BAIL_TOKEN:-3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af}" # Circle test USDC
 # The code's storage (about 3.2 NEAR) plus headroom. Events prepay their own storage.
 fund="4 NEAR"

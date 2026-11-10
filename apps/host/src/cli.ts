@@ -8,6 +8,7 @@ import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 
 import { BailView, RelayerClient, TESTNET, phase } from "@bail/sdk";
+import { ResilientProvider } from "@bail/sdk/provider";
 import { Account } from "near-api-js";
 import type { KeyPairString } from "near-api-js";
 
@@ -36,10 +37,11 @@ const HELP = `bail-host <command> [options]
   Keys come from near-cli's legacy keychain (~/.near-credentials) and are never printed.
   Codes and the slot key are kept in ~/.bail-host (or BAIL_HOST_HOME).`;
 
-function organizerAccount(accountId: string, rpcUrl: string): Account {
+function organizerAccount(accountId: string, view: BailView): Account {
   const file = join(homedir(), ".near-credentials", "testnet", `${accountId}.json`);
   const { private_key } = JSON.parse(readFileSync(file, "utf8")) as { private_key: string };
-  return new Account(accountId, rpcUrl, private_key as KeyPairString);
+  const provider = new ResilientProvider([view.rpcUrl, ...view.fallbackUrls]);
+  return new Account(accountId, provider, private_key as KeyPairString);
 }
 
 async function main(): Promise<void> {
@@ -68,14 +70,18 @@ async function main(): Promise<void> {
     },
   });
   const [command, eventArg] = positionals;
-  const view = new BailView({ contractId: values.contract, rpcUrl: values.rpc });
+  const view = new BailView({
+    contractId: values.contract,
+    rpcUrl: values.rpc,
+    fallbackUrls: values.rpc === TESTNET.rpcUrl ? TESTNET.fallbackUrls : [],
+  });
   const host: Host = { view, contractId: values.contract, stateDir: stateDir() };
   const eventId = Number(eventArg);
   const needEvent = () => {
     if (!Number.isInteger(eventId) || eventId < 0) throw new Error(`${command} needs an event id`);
     return eventId;
   };
-  const withOrganizer = (id: string | undefined) => ({ ...host, organizer: organizerAccount(id!, values.rpc) });
+  const withOrganizer = (id: string | undefined) => ({ ...host, organizer: organizerAccount(id!, view) });
 
   switch (command) {
     case "create": {

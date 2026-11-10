@@ -20,13 +20,15 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 RPC = {
-    "testnet": "https://rpc.testnet.near.org",
-    "mainnet": "https://rpc.mainnet.near.org",
+    "testnet": "https://archival-rpc.testnet.fastnear.com",
+    "mainnet": "https://free.rpc.fastnear.com",
 }
 B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
@@ -40,8 +42,20 @@ def query(url, params):
             "params": {"finality": "final", **params}}
     request = urllib.request.Request(url, json.dumps(body).encode(),
                                      {"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        reply = json.load(response)
+    for attempt in range(1, 7):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                reply = json.load(response)
+            break
+        except urllib.error.HTTPError as error:
+            # Public endpoints throttle; wait as long as they ask, then try again.
+            if error.code != 429 and error.code < 500 or attempt == 6:
+                raise
+            time.sleep(min(float(error.headers.get("Retry-After") or 0) or 2 * attempt, 10))
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == 6:
+                raise
+            time.sleep(2 * attempt)
     error = reply.get("error") or reply.get("result", {}).get("error")
     if error:
         raise RpcError(error)

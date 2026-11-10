@@ -7,13 +7,15 @@
 // Bail's relayer and keeper methods, none of which moves the account's NEAR. With
 // --sponsor, the faucet account gets a new full-access key of its own, so the server
 // never holds the key you created it with; keep that account's balance small. No key is printed.
+// Set NEAR_RPC to use another endpoint if the default one is slow.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { TESTNET } from "@bail/sdk";
-import { Account, JsonRpcProvider, KeyPair, actions, nearToYocto } from "near-api-js";
+import { ResilientProvider } from "@bail/sdk/provider";
+import { Account, KeyPair, actions, nearToYocto } from "near-api-js";
 import type { KeyPairString } from "near-api-js";
 
 import { RELAYER_METHODS } from "../src/chain.ts";
@@ -27,7 +29,9 @@ const count = Number(countArg);
 const envFile = new URL("../.env", import.meta.url).pathname;
 if (existsSync(envFile)) throw new Error(`${envFile} already exists; move it away to make new keys`);
 
-const provider = new JsonRpcProvider({ url: TESTNET.rpcUrl });
+const provider = process.env.NEAR_RPC
+  ? new ResilientProvider([process.env.NEAR_RPC])
+  : new ResilientProvider([TESTNET.rpcUrl, ...TESTNET.fallbackUrls]);
 function fromKeychain(id: string): Account {
   const credentials = join(homedir(), ".near-credentials", "testnet", `${id}.json`);
   const { private_key } = JSON.parse(readFileSync(credentials, "utf8")) as { private_key: string };

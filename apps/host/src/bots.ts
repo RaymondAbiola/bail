@@ -4,6 +4,7 @@
 
 import { type BailView, type RelayerClient, Ticket, rsvpDelegate } from "@bail/sdk";
 
+import { ChainClock } from "./clock.ts";
 import { type EventState, loadState, saveState } from "./state.ts";
 
 export async function rsvpBots(
@@ -18,7 +19,9 @@ export async function rsvpBots(
   const event = await view.event(eventId);
   if (!event) throw new Error(`event ${eventId} does not exist`);
   const bots = [...(state.bots ?? [])];
-  for (let i = 0; i < options.count; i++) {
+  // `count` is the total wanted, so a run that stopped partway can be repeated to finish.
+  while (bots.length < options.count) {
+    const i = bots.length;
     const ticket = Ticket.generate();
     await relayer.faucet(ticket.accountId, eventId);
     const nonce = await view.accessKeyNonce(ticket.accountId, ticket.publicKey);
@@ -35,11 +38,10 @@ export async function rsvpBots(
     const { tx, seated } = await relayer.meta(eventId, ticket.signDelegate(delegate));
     const catches = i >= options.miss;
     bots.push({ backup: ticket.backup(), catches });
+    saveState(stateDir, { ...state, bots });
     log(`bot ${bots.length}: ${ticket.accountId.slice(0, 12)}... seated=${seated} ${catches ? "will catch every code" : "will miss every code"} (tx ${tx})`);
   }
-  const next = { ...state, bots };
-  saveState(stateDir, next);
-  return next;
+  return { ...state, bots };
 }
 
 /** Every catching bot catches `slot`'s code through the relayer. */
@@ -56,9 +58,10 @@ export async function catchSlot(view: BailView, relayer: RelayerClient, state: E
 export async function runBots(view: BailView, relayer: RelayerClient, stateDir: string, eventId: number, log = console.log): Promise<void> {
   const state = loadState(stateDir, view.contractId, eventId);
   const done = new Set<number>();
+  const clock = new ChainClock(view);
   for (;;) {
     const event = (await view.event(eventId))!;
-    const now = await view.now();
+    const now = await clock.fresh();
     for (const [slot, opened] of event.slots.entries()) {
       if (done.has(slot) || now >= opened.opened_at_ms + event.checkin.window_ms) continue;
       await new Promise((r) => setTimeout(r, 3000 + Math.random() * 5000));
@@ -66,6 +69,6 @@ export async function runBots(view: BailView, relayer: RelayerClient, stateDir: 
       done.add(slot);
     }
     if (now >= event.schedule.checkin_closes_at_ms || done.size === event.checkin.slots) return;
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 5000));
   }
 }

@@ -2,7 +2,7 @@
 // RELAYER_ACCOUNT  the account holding the function-call keys, such as relayer.dontbail.testnet
 // RELAYER_KEYS     its function-call secret keys, comma-separated (never logged)
 // BAIL_CONTRACT    default v1.dontbail.testnet
-// NEAR_RPC         default https://rpc.testnet.near.org
+// NEAR_RPC         default https://rpc.testnet.fastnear.com, falling back to FastNEAR's archival host and drpc
 // PORT             default 8787
 // ALLOW_ORIGIN     the web app's origin, default *
 // KEEPER           set to "off" to run the relayer without the keeper
@@ -27,18 +27,20 @@ const required = (name: string): string => {
 
 const contractId = env.BAIL_CONTRACT ?? TESTNET.contractId;
 const rpcUrl = env.NEAR_RPC ?? TESTNET.rpcUrl;
+const fallbackUrls = env.NEAR_RPC ? [] : TESTNET.fallbackUrls;
 const chain = new NearChain({
   accountId: required("RELAYER_ACCOUNT"),
   contractId,
   rpcUrl,
+  fallbackUrls,
   keys: required("RELAYER_KEYS").split(",").map((k) => k.trim()).filter(Boolean),
 });
-const view = new BailView({ contractId, rpcUrl });
+const view = new BailView({ contractId, rpcUrl, fallbackUrls });
 const port = Number(env.PORT ?? 8787);
 
 const sponsor = env.SPONSOR_ACCOUNT
   ? new Sponsor(
-      new Sender({ accountId: env.SPONSOR_ACCOUNT, rpcUrl, keys: [required("SPONSOR_KEY")] }),
+      new Sender({ accountId: env.SPONSOR_ACCOUNT, rpcUrl, fallbackUrls, keys: [required("SPONSOR_KEY")] }),
       env.BAIL_TOKEN ?? TESTNET.token,
       view,
     )

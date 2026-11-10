@@ -1,5 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2.js";
-import { Account, JsonRpcProvider, KeyPair, KeyPairSigner, actions, baseEncode, teraToGas } from "near-api-js";
+import { ResilientProvider } from "@bail/sdk/provider";
+import { Account, KeyPair, KeyPairSigner, actions, baseEncode, teraToGas } from "near-api-js";
 import type { Action, KeyPairString } from "near-api-js";
 
 /** Everything the relayer and keeper call. None of them takes attached NEAR. */
@@ -65,13 +66,13 @@ class Lane {
  */
 export class Sender {
   readonly accountId: string;
-  readonly provider: JsonRpcProvider;
+  readonly provider: ResilientProvider;
   readonly #lanes: Lane[];
 
-  constructor(options: { accountId: string; rpcUrl: string; keys: string[] }) {
+  constructor(options: { accountId: string; rpcUrl: string; fallbackUrls?: readonly string[]; keys: string[] }) {
     if (options.keys.length === 0) throw new Error(`${options.accountId} needs at least one key`);
     this.accountId = options.accountId;
-    this.provider = new JsonRpcProvider({ url: options.rpcUrl });
+    this.provider = new ResilientProvider([options.rpcUrl, ...(options.fallbackUrls ?? [])]);
     this.#lanes = options.keys.map((secret) => {
       const signer = new KeyPairSigner(KeyPair.fromString(secret as KeyPairString));
       return new Lane(() => new Account(options.accountId, this.provider, signer));
@@ -107,7 +108,7 @@ export class NearChain implements Chain {
   readonly contractId: string;
   readonly #sender: Sender;
 
-  constructor(options: { accountId: string; contractId: string; rpcUrl: string; keys: string[] }) {
+  constructor(options: { accountId: string; contractId: string; rpcUrl: string; fallbackUrls?: readonly string[]; keys: string[] }) {
     this.contractId = options.contractId;
     this.#sender = new Sender(options);
   }
