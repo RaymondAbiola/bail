@@ -13,6 +13,7 @@ import { TicketPanel } from "./TicketPanel.tsx";
 import { ContractLink, Notice, Skeleton, formatClock, formatWhen } from "./common.tsx";
 import { Icon } from "./Icon.tsx";
 import { slotStatus } from "../lib/slots.ts";
+import { requiredCodes, STAY_UNTIL_END } from "../lib/checkin-copy.ts";
 
 export function EventPage({ id, view: sub }: { id: number; view: "main" | "rsvp" | "restore" | "organizer" }) {
   const { config } = useApp();
@@ -126,6 +127,7 @@ function Summary({ event }: { event: Event }) {
       <hr className="perforation" />
       <dl className="facts">
         <div className="wide"><dt>Check-in opens</dt><dd>{formatWhen(s.checkin_opens_at_ms)}</dd></div>
+        <div className="wide"><dt>RSVPs close</dt><dd>{formatWhen(s.rsvp_closes_at_ms)}{s.rsvp_closes_at_ms === s.checkin_opens_at_ms ? ", when the call starts" : ""}</dd></div>
         <div>
           {event.closed ? (
             <>
@@ -139,7 +141,7 @@ function Summary({ event }: { event: Event }) {
             </>
           )}
         </div>
-        <div><dt>Codes</dt><dd>Catch {event.checkin.required} of {event.checkin.slots}</dd></div>
+        <div><dt>Codes</dt><dd>Catch {requiredCodes(event.checkin.required, event.checkin.slots)}</dd></div>
         <div className="wide"><dt>Free cancellation until</dt><dd>{formatWhen(s.cancel_cutoff_ms)}</dd></div>
       </dl>
     </section>
@@ -185,7 +187,7 @@ function HowItWorks({ event }: { event: Event }) {
     <section className="event-rules" aria-label="How deposits and attendance work">
       <ol className="steps">
         <li><span className="mark done" aria-hidden="true">1</span><span>Put down the deposit of {formatUsdc(event.deposit)}.</span></li>
-        <li><span className="mark done" aria-hidden="true">2</span><span>Join the call. The host shows {event.checkin.slots} live codes at unexpected times. Type each one in within {Math.round(event.checkin.window_ms / 60000)} minute{event.checkin.window_ms === 60000 ? "" : "s"}. You need {event.checkin.required}.</span></li>
+        <li><span className="mark done" aria-hidden="true">2</span><span>Join the call. The host shows {event.checkin.slots} live codes at unexpected times. Type each one in within {Math.round(event.checkin.window_ms / 60000)} minute{event.checkin.window_ms === 60000 ? "" : "s"}. You need {requiredCodes(event.checkin.required, event.checkin.slots)}.{event.checkin.required === event.checkin.slots && <> {STAY_UNTIL_END}</>}</span></li>
         <li><span className="mark done" aria-hidden="true">3</span><span>If you catch enough, you get at least your deposit back, plus a share of what people forfeit.</span></li>
         <li><span className="mark done" aria-hidden="true">4</span><span>If you don't, you forfeit it. A ticket rescued by two vouches gets its deposit back, without the bonus.</span></li>
       </ol>

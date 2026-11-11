@@ -4,6 +4,7 @@ import { type Event, type Ticket, type TicketRecord, normalizeCode, suggestWords
 
 import { useApp } from "../context.tsx";
 import { attemptLanded, nextAttempt } from "../lib/attempts.ts";
+import { codeEntryWarnings } from "../lib/code-entry.ts";
 import { describeError } from "../lib/errors.ts";
 import { canFlag, hasFlagged } from "../lib/rules.ts";
 import { slotWindowEnd } from "../lib/slots.ts";
@@ -47,6 +48,7 @@ export function LiveCode({ eventId, event, slot, now, ticket, chain, stored, sav
   const hasPrevious = !!(onChain || previous);
 
   const normalized = useMemo(() => normalizeCode(text), [text]);
+  const entryWarnings = useMemo(() => codeEntryWarnings(text), [text]);
   const wordList = normalized ? normalized.split(" ") : [];
   const typing = text.length > 0 && !/\s$/.test(text);
   const partial = typing ? (wordList[wordList.length - 1] ?? "") : "";
@@ -144,11 +146,18 @@ export function LiveCode({ eventId, event, slot, now, ticket, chain, stored, sav
               spellCheck={false}
               enterKeyHint="send"
               inputMode="text"
-              aria-describedby="code-hint"
+              aria-describedby={`code-hint${entryWarnings.length ? " code-warning" : ""}`}
             />
             <p id="code-hint" className="hint word-count" aria-live="polite">
               {wordNote}. Capitals and spacing don't matter.
             </p>
+            {entryWarnings.length > 0 && (
+              <div id="code-warning">
+                <Notice tone="wait" title="Check before sending">
+                  {entryWarnings.map((warning) => <p key={warning}>{warning}</p>)}
+                </Notice>
+              </div>
+            )}
           </div>
 
           {suggestions.length > 0 && (
@@ -170,7 +179,7 @@ export function LiveCode({ eventId, event, slot, now, ticket, chain, stored, sav
             </ul>
           )}
 
-          {unknown.length > 0 && (
+          {unknown.length > 0 && entryWarnings.length === 0 && (
             <p className="hint" role="status">
               Check the spelling of {unknown.map((w) => `"${w}"`).join(", ")}. It is not on the word list. You can still send it.
             </p>

@@ -2,6 +2,7 @@ import type { Event, TicketRecord } from "@bail/sdk";
 
 import { catchStatus, requirement, slotStatus } from "../lib/slots.ts";
 import { Icon } from "./Icon.tsx";
+import { requiredCodes } from "../lib/checkin-copy.ts";
 
 export interface CodeStep {
   label: string;
@@ -37,5 +38,5 @@ export function TicketCodeStrip({ event, eventId, now, chain, contractId, ticket
     if (status === "awaiting-reveal") return caught === "none" ? { tone: "missed", label: "Not sent" } : { tone: "sent", label: "Sent" };
     return { tone: "missed", label: caught === "not-confirmed" ? "No match" : "Not sent" };
   });
-  return <><CodeStrip steps={steps} /><p className="ticket-footnote">{need.needed} confirmed {need.needed === 1 ? "code" : "codes"} needed{need.voidSlots > 0 ? ` · ${need.voidSlots} void` : ` of ${event.checkin.slots}`}.</p></>;
+  return <><CodeStrip steps={steps} /><p className="ticket-footnote">{need.needed === 0 ? "No confirmed codes needed" : `Catch ${requiredCodes(need.needed, need.slots)} and have them confirmed`}{need.voidSlots > 0 ? ` · ${need.voidSlots} void` : ""}.</p></>;
 }

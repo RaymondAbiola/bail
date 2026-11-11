@@ -1,6 +1,9 @@
 import type { Event, Ticket, TicketRecord } from "@bail/sdk";
 
 import { type CatchStatus, type SlotStatus, catchStatus, requirement, slotStatus } from "../lib/slots.ts";
+import { requiredCodes } from "../lib/checkin-copy.ts";
+import { recordedCode } from "../lib/code-entry.ts";
+import type { StoredTicket } from "../lib/storage.ts";
 import { FlagAction } from "./LiveCode.tsx";
 
 interface Row {
@@ -38,26 +41,28 @@ export interface ProgressProps {
   chain: TicketRecord | null;
   ticketObj?: Ticket;
   onChanged?: () => void;
+  submissions?: StoredTicket["submissions"];
 }
 
 /** One line per code, with words as well as marks, and the current requirement above it. */
-export function Progress({ eventId, event, now, contractId, ticketKey, chain, ticketObj, onChanged }: ProgressProps) {
+export function Progress({ eventId, event, now, contractId, ticketKey, chain, ticketObj, onChanged, submissions }: ProgressProps) {
   const need = requirement(event, now);
   let confirmed = 0;
   const rows = Array.from({ length: event.checkin.slots }, (_, slot) => {
     const status = slotStatus(event, slot, now);
     const caught = catchStatus(event, slot, chain, contractId, eventId, ticketKey);
     if (caught === "confirmed") confirmed++;
-    return { slot, status, caught, ...row(status, caught) };
+    const sentCode = caught === "not-confirmed" ? recordedCode(submissions?.[slot], chain, contractId, eventId, slot, ticketKey) : null;
+    return { slot, status, caught, sentCode, ...row(status, caught) };
   });
   return (
     <div className="actions">
       <p>
         <strong>
-          You need {need.needed} confirmed {need.needed === 1 ? "code" : "codes"}
+          {need.needed === need.slots ? `You need ${requiredCodes(need.needed, need.slots)} confirmed` : `You need ${need.needed} confirmed ${need.needed === 1 ? "code" : "codes"}`}
         </strong>{" "}
         <span className="muted">
-          ({event.checkin.required} required of {event.checkin.slots}
+          ({requiredCodes(event.checkin.required, event.checkin.slots)} required
           {need.voidSlots > 0 ? `, ${need.voidSlots} void so far lowers it` : ""}). Confirmed so far: {confirmed}.
         </span>
       </p>
@@ -68,6 +73,9 @@ export function Progress({ eventId, event, now, contractId, ticketKey, chain, ti
             <div>
               <strong>Code {r.slot + 1}: {r.title}</strong>
               <div className="small muted">{r.detail}</div>
+              {r.caught === "not-confirmed" && (
+                <p className="small">{r.sentCode !== null ? <>You sent: <span style={{ overflowWrap: "anywhere" }}>{r.sentCode}</span></> : "The recorded code text is not available on this device."}</p>
+              )}
               {ticketObj && onChanged && r.status === "awaiting-reveal" && r.caught === "none" && (
                 <FlagAction eventId={eventId} event={event} slot={r.slot} now={now} ticket={ticketObj} chain={chain} onChanged={onChanged} />
               )}

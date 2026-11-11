@@ -7,7 +7,8 @@ import { type EventState, usePoll, useStoredTicket } from "../hooks.ts";
 import { formatUsdc } from "../lib/money.ts";
 import { canCancel } from "../lib/rules.ts";
 import type { CachedResult } from "../lib/storage.ts";
-import { liveSlot, requirement } from "../lib/slots.ts";
+import { catchStatus, liveSlot, requirement } from "../lib/slots.ts";
+import { requiredCodes, STAY_UNTIL_END } from "../lib/checkin-copy.ts";
 import { KeyBackup } from "./KeyBackup.tsx";
 import { LiveCode } from "./LiveCode.tsx";
 import { Progress } from "./Progress.tsx";
@@ -56,6 +57,7 @@ export function TicketPanel({ eventId, event, state, loading, now, refresh }: Ti
   const slot = liveSlot(event, now);
   const refunded = event.status !== "Active";
   const live = !refunded && phase === "CheckIn" && slot !== null;
+  const notConfirmed = event.slots.some((_, slot) => catchStatus(event, slot, chain, config.contractId, eventId, ticket.publicKey) === "not-confirmed");
 
   return (
     <div className="column ticket-column">
@@ -95,8 +97,10 @@ export function TicketPanel({ eventId, event, state, loading, now, refresh }: Ti
           <p className="big-number" aria-live="off">{formatCountdown(event.schedule.checkin_opens_at_ms - now)}</p>
           <p className="muted small">That is {formatWait(event.schedule.checkin_opens_at_ms - now)} from now.</p>
           <p>
-            <strong>Keep this page open during the call.</strong> The host will share codes at unexpected times. You need {event.checkin.required} of {event.checkin.slots}.
+            <strong>Keep this page open during the call.</strong> The host will share codes at unexpected times. You need {requiredCodes(event.checkin.required, event.checkin.slots)}.
+            {event.checkin.required === event.checkin.slots && <> {STAY_UNTIL_END}</>}
           </p>
+          <p className="small muted">RSVPs close {formatWhen(event.schedule.rsvp_closes_at_ms)}{event.schedule.rsvp_closes_at_ms === event.schedule.checkin_opens_at_ms ? ", when the call starts" : ""}.</p>
           <CancelAction eventId={eventId} event={event} ticket={ticket} chain={chain} now={now} onCancelled={(tx) => { update((t) => ({ ...t, cancelled: { tx, at: Date.now() } })); void refresh(); }} />
         </section>
       )}
@@ -109,17 +113,18 @@ export function TicketPanel({ eventId, event, state, loading, now, refresh }: Ti
               ? "No code has been shared yet. The first one can appear at any moment."
               : "Stay on the call. The next code can appear at any moment."}{" "}
             Keep this page open.
+            {event.checkin.required === event.checkin.slots && <> {STAY_UNTIL_END}</>}
           </p>
         </section>
       )}
 
       {!refunded && (phase === "CheckIn" || phase === "Reveal" || phase === "Dispute") && (
-        <details className="disclosure" open={!live}>
+        <details className="disclosure" open={!live || notConfirmed}>
           <summary>Your codes: details and flags</summary>
           <div>
           <Progress
             eventId={eventId} event={event} now={now} contractId={config.contractId}
-            ticketKey={ticket.publicKey} chain={chain} ticketObj={ticket} onChanged={() => void refresh()}
+            ticketKey={ticket.publicKey} chain={chain} ticketObj={ticket} submissions={stored.submissions} onChanged={() => void refresh()}
           />
           {phase === "Reveal" && <p className="small muted">Codes are confirmed once the host reveals them. Confirmation can arrive any time up to {formatWhen(event.schedule.reveal_deadline_ms)}.</p>}
           </div>
@@ -172,7 +177,7 @@ function Standing({ eventId, event, state, now }: { eventId: number; event: Even
           {s.verified_catches} confirmed, {s.catches_needed} needed. {s.vouches} of 2 vouches so far.
         </Notice>
       )}
-      <p className="small muted">Event #{eventId}: {need.required} of {need.slots} codes required.</p>
+      <p className="small muted">Event #{eventId}: {requiredCodes(need.required, need.slots)} required.</p>
     </section>
   );
 }

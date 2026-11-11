@@ -36,6 +36,8 @@ if (shots) mkdirSync(shots, { recursive: true });
 
 const CODE_A = "tiger maple seven ocean lamp";
 const CODE_B = "abandon ability able about above";
+const LETTER_CODE = Array.from({ length: 30 }, () => "a").join(" ");
+const WINDOW = 5 * MINUTE;
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -139,8 +141,8 @@ async function main() {
       event: {
         token: usdc.accountId, deposit: String(USDC), capacity: 6, arbiter: arbiter.accountId,
         cancel_cutoff_ms: t0 + MINUTE, rsvp_closes_at_ms: opens, checkin_opens_at_ms: opens,
-        checkin_closes_at_ms: opens + 6 * MINUTE, reveal_ms: MINUTE, dispute_ms: MINUTE,
-        checkin: { slots: 2, required: 1, window_ms: MINUTE },
+        checkin_closes_at_ms: opens + 12 * MINUTE, reveal_ms: MINUTE, dispute_ms: MINUTE,
+        checkin: { slots: 2, required: 1, window_ms: WINDOW },
       },
     }, BigInt(await view.storageCost(6)));
 
@@ -280,6 +282,16 @@ async function main() {
     await shot(page, "09-live-code-320-keyboard");
     await page.setViewport(PHONE);
 
+    step("a letter-by-letter paste is warned about without blocking Send");
+    await page.type("#code", LETTER_CODE);
+    await waitText(page, "That is 30 words. A code is five words.");
+    await waitText(page, "These look like single letters. Codes are whole words.");
+    assert.equal(await page.$eval('button[type="submit"]', (button) => (button as HTMLButtonElement).disabled), false);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "warnings fit a phone");
+    await shot(page, "09-letter-paste-warning");
+    await page.click("#code", { count: 3 });
+    await page.keyboard.press("Backspace");
+
     step("suggestions never take focus from the input");
     await page.click("#code");
     await page.type("#code", "ti");
@@ -311,21 +323,41 @@ async function main() {
     assert.equal((await view.ticket(0, alice.publicKey))!.catches[0]!.attempt, 2, "the correction landed as attempt 2");
     await shot(page, "11-resubmitted");
 
-    // Carol catches it through the relayer; Bob and Dave do not.
+    // Carol catches it through the relayer; Dave will send a malformed paste below.
     await relayerClient.submit(guests.carol.catch(bail.accountId, 0, 0, 1, CODE_A));
+
+    step("another attendee sends the malformed paste despite the warning");
+    const mistaken = await (await browser.createBrowserContext()).newPage();
+    await mistaken.setViewport(PHONE);
+    await mistaken.goto(`${siteUrl}/#/event/0/restore`, { waitUntil: "domcontentloaded" });
+    await mistaken.type("#key", guests.dave.backup());
+    await clickText(mistaken, "Check this key");
+    await waitText(mistaken, "has a seat in this event");
+    await clickText(mistaken, "Use this ticket");
+    await waitText(mistaken, "Code 1 of 2 is live");
+    await mistaken.type("#code", LETTER_CODE);
+    await clickText(mistaken, "Send code");
+    await waitText(mistaken, "Confirmation comes after the host reveals the code");
 
     step("the code is revealed and Alice's catch is confirmed");
     const opened0 = (await view.event(0))!.slots[0]!.opened_at_ms;
-    await sb.advanceTo(view, opened0 + MINUTE);
+    await sb.advanceTo(view, opened0 + WINDOW);
     await sb.call(organizer, bail.accountId, "reveal", { event_id: 0, slot: 0, code: CODE_A });
     await nudge(page);
     await waitText(page, "Code 1: Confirmed");
     await shot(page, "12-confirmed");
+    await nudge(mistaken);
+    await waitText(mistaken, "Code 1: Not confirmed");
+    await waitText(mistaken, `You sent: ${LETTER_CODE}`);
+    await shot(mistaken, "12-not-confirmed-with-code");
 
     step("the second code opens and the host shows no code: Alice flags it");
     await sb.call(organizer, bail.accountId, "open_slot", { event_id: 0, slot: 1, commitment: toBase64(codeCommitment(bail.accountId, 0, 1, CODE_B)) });
     await waitText(page, "Code 2 of 2 is live");
-    await sb.advanceTo(view, (await view.event(0))!.slots[1]!.opened_at_ms + MINUTE);
+    await waitText(mistaken, "Code 2 of 2 is live");
+    await waitText(mistaken, `You sent: ${LETTER_CODE}`);
+    await mistaken.close();
+    await sb.advanceTo(view, (await view.event(0))!.slots[1]!.opened_at_ms + WINDOW);
     await nudge(page);
     await waitText(page, "Code 2: Window closed, no code sent");
     await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("summary")].find((e) => e.textContent?.includes("did not show a code"))!.click());

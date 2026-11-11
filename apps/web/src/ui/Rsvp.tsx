@@ -11,6 +11,7 @@ import type { StoredTicket } from "../lib/storage.ts";
 import { KeyBackup } from "./KeyBackup.tsx";
 import { OtherChain } from "./OtherChain.tsx";
 import { Notice, TxLink, formatWhen, useAction } from "./common.tsx";
+import { requiredCodes } from "../lib/checkin-copy.ts";
 
 export const BLOCK_COPY = {
   "not-found": "This event does not exist.",
@@ -99,7 +100,7 @@ function Terms({ eventId, event, onCreate }: { eventId: number; event: Event; on
         <h2 id="terms-title">Before you pay</h2>
         <ul className="steps">
           <li><span className="mark done" aria-hidden="true">1</span><span>You put down <strong>{formatUsdc(event.deposit)}</strong>. The app gets the test USDC for you, so you need no wallet and no NEAR.</span></li>
-          <li><span className="mark done" aria-hidden="true">2</span><span>If you catch {event.checkin.required} of the {event.checkin.slots} live codes, you get at least your deposit back, plus a share of what people forfeit.</span></li>
+          <li><span className="mark done" aria-hidden="true">2</span><span>If you catch {requiredCodes(event.checkin.required, event.checkin.slots)} shared during the call, you get at least your deposit back, plus a share of what people forfeit.</span></li>
           <li><span className="mark done" aria-hidden="true">3</span><span>If you don't, you forfeit it to those who did. If you change your mind, cancel before <strong>{formatWhen(s.cancel_cutoff_ms)}</strong> for a full refund.</span></li>
         </ul>
         <p>
