@@ -86,6 +86,11 @@ export function slotRange(
   return { earliest, latest: Math.max(earliest, latest) };
 }
 
+/** The last moment any code can still be opened and have its whole window before check-in closes. */
+export function lastChance(windowMs: number, closesAt: number): number {
+  return closesAt - windowMs - MARGIN_MS - LATENCY_MS;
+}
+
 /** A moment in the range nobody can predict, so attendees can't just tune in for the codes. */
 export function randomMoment({ earliest, latest }: { earliest: number; latest: number }): number {
   const span = latest - earliest;

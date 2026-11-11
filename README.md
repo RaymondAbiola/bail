@@ -13,7 +13,7 @@ This repository runs Kickback's real contract, copied unchanged and checked agai
 ## How an event works
 
 1. **RSVP.** The organizer creates an event with a deposit, a capacity, a schedule and a named arbiter. Attendees RSVP with the deposit. Free cancellation until a cutoff.
-2. **Check-in.** On a video call the host shows live codes, each five random words, at unpredictable moments. Each code is live for a short window. Attendees type it in. The host commits to each code on chain when it opens, so it can't be changed later.
+2. **Check-in.** On a video call the host shows live codes, each five random words, whenever the host chooses, with the last one usually kept for the end. Nobody knows in advance when a code is coming. Each code is live for a short window. Attendees type it in. The host commits to each code on chain when it opens, so it can't be changed later.
 3. **Reveal.** After a code's window, anyone who knows it can reveal it. The contract checks each attendee's catch against it. An attendee needs R of the K codes. A code the host never opens or reveals becomes void and only lowers the requirement.
 4. **Dispute.** Attendees who qualified can vouch for someone whose phone died (two vouches get the deposit back, without the bonus). If the host hides codes, attendees flag the slot and the arbiter can void the event, which refunds everyone. The arbiter can't be the organizer and can't choose who attended.
 5. **Settle.** Anyone can run the tally and the payouts. A keeper does it automatically. Fees, if any, come only from forfeited deposits.

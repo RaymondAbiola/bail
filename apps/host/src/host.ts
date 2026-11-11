@@ -5,10 +5,10 @@ import type { KeyPairString } from "near-api-js";
 
 import { ChainClock } from "./clock.ts";
 import { copyToClipboard } from "./clipboard.ts";
-import { renderCode, renderWaiting } from "./display.ts";
-import { type EventPlan, buildEvent, randomMoment, slotRange } from "./schedule.ts";
+import { type ReadyView, renderCode, renderOpeningSoon, renderReady, renderWaiting } from "./display.ts";
+import { type EventPlan, buildEvent, lastChance, randomMoment, slotRange } from "./schedule.ts";
 import { type EventState, loadState, saveState } from "./state.ts";
-import { TerminalScreen } from "./terminal.ts";
+import { EnterKey, TerminalScreen } from "./terminal.ts";
 
 /** open_slot and reveal are cheap; never attach the maximum, which a function-call key pays for up front. */
 const HOST_TGAS = 30;
@@ -67,13 +67,48 @@ async function callAsHost(account: Account, host: Host, methodName: string, args
   await account.callFunction({ contractId: host.contractId, methodName, args, gas: teraToGas(HOST_TGAS) });
 }
 
+export interface WaitForHost {
+  view: ReadyView;
+  /** Resolves when the host asks for the code. */
+  pressed: Promise<void>;
+  /** Chain time, as near as can be told. */
+  now: () => Promise<number> | number;
+  show: (frame: string) => void;
+  pause?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Waits for the host to ask for a code, then for the moment it may open. True means open it
+ * now; false means it is too late for this code to fit, so it stays void. Nothing opens on
+ * its own: a code that went live while the host was busy talking would cost everyone.
+ */
+export async function waitForHost({ view, pressed, now, show, pause = (ms) => new Promise((r) => setTimeout(r, ms)) }: WaitForHost): Promise<boolean> {
+  let asked = false;
+  void pressed.then(() => (asked = true));
+  for (;;) {
+    const t = await now();
+    if (t >= view.lastChance) return false;
+    if (asked && t >= view.earliest) return true;
+    if (asked) {
+      show(renderOpeningSoon(view.slot, view.slots, view.earliest - t));
+      await pause(Math.min(1000, view.earliest - t));
+    } else {
+      show(renderReady({ ...view, now: t }));
+      await Promise.race([pressed, pause(1000)]);
+    }
+  }
+}
+
 export interface LiveOptions {
-  /** Open each slot as early as allowed instead of at a random moment. */
-  earliest?: boolean;
+  /**
+   * When each code opens: "host" (the default) when the host presses Enter, "random" at a
+   * random moment that leaves room for the rest, "earliest" as soon as allowed (for tests).
+   */
+  timing?: "host" | "random" | "earliest";
+  /** For "host" timing: resolves when the host asks for the next code. Defaults to the Enter key. */
+  nextPress?: () => Promise<void>;
   /** Reveal each code as soon as its window closes. On by default. */
   reveal?: boolean;
-  /** Called before each slot opens, for example to wait for the host to press Enter. */
-  beforeOpen?: (slot: number) => Promise<void>;
   onOpen?: (slot: number, code: string) => Promise<void> | void;
   show?: (screen: string) => void;
   /** Waits until block time reaches `ms`. Defaults to polling the chain once a second. */
@@ -101,68 +136,91 @@ export async function runLive(host: Host, eventId: number, options: LiveOptions 
   }
   const clock = new ChainClock(view);
   const sleepUntil = options.sleepUntil ?? ((ms: number) => clock.sleepUntil(ms));
-
-  let event = (await view.event(eventId))!;
-  if (!event) throw new Error(`event ${eventId} does not exist`);
-  const { slots, window_ms: windowMs } = event.checkin;
-  const { checkin_opens_at_ms: opensAt, checkin_closes_at_ms: closesAt } = event.schedule;
-
-  const shown: string[] = [];
-  let noRoomFor: number | null = null;
-  for (let slot = 0; slot < slots; slot++) {
-    const code = state.codes[slot]!;
-    let note: string | undefined;
-    if (!event.slots[slot]) {
-      const range = slotRange(slot, slots, windowMs, opensAt, closesAt, event.slots[slot - 1]?.opened_at_ms ?? null);
-      if (!range) {
-        noRoomFor = slot;
-        break;
-      }
-      show(renderWaiting(slot, slots));
-      await sleepUntil(range.earliest);
-      await options.beforeOpen?.(slot);
-      await sleepUntil(options.earliest ? range.earliest : randomMoment(range));
-      await callAsHost(account, host, "open_slot", {
-        event_id: eventId,
-        slot,
-        commitment: toBase64(codeCommitment(host.contractId, eventId, slot, code)),
-      });
-      event = (await view.event(eventId))!;
-      await options.onOpen?.(slot, code);
-      if (!options.show) {
-        const tool = await copyToClipboard(code);
-        note = tool
-          ? `Copied to your clipboard (${tool}). Paste it into the call chat.`
-          : "Triple-click the green line to copy it. Nothing else is on that line.";
-      }
-    }
-    shown.push(`Code ${slot + 1}: ${code}`);
-    const windowEnds = event.slots[slot]!.opened_at_ms + windowMs;
-    if (options.sleepUntil) {
-      show(renderCode(code, slot, slots, windowEnds - (await view.now()), true, note));
-      await options.sleepUntil(windowEnds);
-    } else {
-      // Count the seconds locally; ask the chain only now and then, and to confirm the end.
-      await clock.sync();
-      for (;;) {
-        const now = await clock.fresh();
-        if (now >= windowEnds && (await clock.sync()) >= windowEnds) break;
-        show(renderCode(code, slot, slots, Math.max(0, windowEnds - now), true, note));
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-    }
-    if (options.reveal !== false && event.slots[slot]!.revealed === null) {
-      await callAsHost(account, host, "reveal", { event_id: eventId, slot, code });
-    }
-    event = (await view.event(eventId))!;
+  const timing = options.timing ?? "host";
+  const keys = timing === "host" && !options.nextPress ? new EnterKey() : null;
+  try {
+    await liveSlots();
+  } finally {
+    keys?.close();
   }
-  const ending =
-    noRoomFor === null
-      ? "Check-in is over and every code is revealed. Attendees can vouch until the dispute window ends."
-      : `Check-in is over. There was no time left to open code ${noRoomFor + 1}, so it stays unopened and is void, which only lowers what everyone needs.`;
-  const summary = ["", ...shown, "", ending].join("\n");
-  if (screen) screen.close(summary);
-  else show(summary);
+
+  async function liveSlots(): Promise<void> {
+    let event = (await view.event(eventId))!;
+    if (!event) throw new Error(`event ${eventId} does not exist`);
+    const { slots, window_ms: windowMs } = event.checkin;
+    const { checkin_opens_at_ms: opensAt, checkin_closes_at_ms: closesAt } = event.schedule;
+
+    const shown: string[] = [];
+    let noRoomFor: number | null = null;
+    for (let slot = 0; slot < slots; slot++) {
+      const code = state.codes[slot]!;
+      let note: string | undefined;
+      if (!event.slots[slot]) {
+        const range = slotRange(slot, slots, windowMs, opensAt, closesAt, event.slots[slot - 1]?.opened_at_ms ?? null);
+        if (!range) {
+          noRoomFor = slot;
+          break;
+        }
+        if (timing === "host") {
+          await clock.sync();
+          const go = await waitForHost({
+            view: { slot, slots, windowMs, now: 0, earliest: range.earliest, roomBy: range.latest, lastChance: lastChance(windowMs, closesAt) },
+            pressed: options.nextPress ? options.nextPress() : keys!.next(),
+            now: () => clock.fresh(),
+            show,
+          });
+          if (!go) {
+            noRoomFor = slot;
+            break;
+          }
+        } else {
+          show(renderWaiting(slot, slots));
+          await sleepUntil(timing === "earliest" ? range.earliest : randomMoment(range));
+        }
+        await callAsHost(account, host, "open_slot", {
+          event_id: eventId,
+          slot,
+          commitment: toBase64(codeCommitment(host.contractId, eventId, slot, code)),
+        });
+        event = (await view.event(eventId))!;
+        await options.onOpen?.(slot, code);
+        if (!options.show) {
+          const tool = await copyToClipboard(code);
+          note = tool
+            ? `Copied to your clipboard (${tool}). Paste it into the call chat.`
+            : "Triple-click the green line to copy it. Nothing else is on that line.";
+        }
+      }
+      shown.push(`Code ${slot + 1}: ${code}`);
+      const windowEnds = event.slots[slot]!.opened_at_ms + windowMs;
+      if (options.sleepUntil) {
+        show(renderCode(code, slot, slots, windowEnds - (await view.now()), true, note));
+        await options.sleepUntil(windowEnds);
+      } else {
+        // Count the seconds locally; ask the chain only now and then, and to confirm the end.
+        await clock.sync();
+        for (;;) {
+          const now = await clock.fresh();
+          if (now >= windowEnds && (await clock.sync()) >= windowEnds) break;
+          show(renderCode(code, slot, slots, Math.max(0, windowEnds - now), true, note));
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+      if (options.reveal !== false && event.slots[slot]!.revealed === null) {
+        await callAsHost(account, host, "reveal", { event_id: eventId, slot, code });
+      }
+      event = (await view.event(eventId))!;
+    }
+    const ending =
+      noRoomFor === null
+        ? "Check-in is over and every code is revealed. Attendees can vouch until the dispute window ends."
+        : noRoomFor === slots - 1
+          ? `Check-in is over. There was no time left to open code ${slots}, so it stays unopened and is void, which only lowers what everyone needs.`
+          : `Check-in is over. There was no time left to open codes ${noRoomFor + 1} to ${slots}, so they stay unopened and are void, which only lowers what everyone needs.`;
+    const summary = ["", ...shown, "", ending].join("\n");
+    if (screen) screen.close(summary);
+    else show(summary);
+  }
 }
 
 /** Reveals every opened code whose window has closed, for example after `live --no-reveal`. */

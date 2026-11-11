@@ -4,11 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import { EventEmitter } from "node:events";
+
 import { copyToClipboard } from "../src/clipboard.ts";
 import { renderCode, renderWaiting } from "../src/display.ts";
-import { type EventPlan, LATENCY_MS, MARGIN_MS, MINUTE, buildEvent, parseAmount, parseWhen, randomMoment, slotRange } from "../src/schedule.ts";
+import { waitForHost } from "../src/host.ts";
+import { type EventPlan, LATENCY_MS, MARGIN_MS, MINUTE, buildEvent, lastChance, parseAmount, parseWhen, randomMoment, slotRange } from "../src/schedule.ts";
 import { loadState, saveState } from "../src/state.ts";
-import { TerminalScreen } from "../src/terminal.ts";
+import { EnterKey, TerminalScreen } from "../src/terminal.ts";
 
 const NOW = 1_800_000_000_000;
 
@@ -138,6 +141,74 @@ test("the code is copied with whichever clipboard tool exists, and nothing break
   assert.equal(tool, "wl-copy");
   assert.equal(readFileSync(sink, "utf8"), "seat rescue clap brave bleak", "exactly the words, no newline or spaces");
   assert.equal(await copyToClipboard("anything", { PATH: mkdtempSync(join(tmpdir(), "bail-empty-")) }), null);
+});
+
+test("the host opens each code when they choose, as fast as codes can follow each other", async () => {
+  const window = 5 * MINUTE;
+  const opens = 1000 * MINUTE;
+  const closes = opens + 60 * MINUTE;
+  const view = (slot: number, earliest: number) => ({
+    slot, slots: 3, windowMs: window, now: 0, earliest,
+    roomBy: slotRange(slot, 3, window, opens, closes, null)!.latest, lastChance: lastChance(window, closes),
+  });
+  // Fake chain time that moves forward by whatever the console waits.
+  const run = async (v: ReturnType<typeof view>, start: number, pressAt: number | null) => {
+    let t = start;
+    let press!: () => void;
+    const pressed = new Promise<void>((r) => (press = r));
+    const frames: string[] = [];
+    const go = await waitForHost({
+      view: v, pressed, now: () => t, show: (f) => void frames.push(f),
+      pause: async (ms) => {
+        t += ms;
+        if (pressAt !== null && t >= pressAt) press();
+        await Promise.resolve();
+      },
+    });
+    return { go, t, frames };
+  };
+
+  // Enter right away: code 1 opens as soon as check-in does, not at some later moment.
+  const first = await run(view(0, opens + MARGIN_MS), opens, opens);
+  assert.equal(first.go, true);
+  assert.ok(first.t >= opens + MARGIN_MS && first.t < opens + MARGIN_MS + 2000);
+
+  // Enter while code 1 is still live: code 2 waits only for code 1's window to close.
+  const code2From = first.t + window + MARGIN_MS;
+  const second = await run(view(1, code2From), first.t + MINUTE, first.t + MINUTE + 1000);
+  assert.equal(second.go, true);
+  assert.ok(second.t >= code2From && second.t < code2From + 2000);
+  assert.ok(second.frames.some((f) => /OPENS AS SOON AS IT CAN/.test(f)));
+
+  // So all three codes can be done in the first 16 or so minutes of an hour-long event.
+  const code3From = second.t + window + MARGIN_MS;
+  const third = await run(view(2, code3From), code3From, code3From);
+  assert.ok(third.t + window - opens < 17 * MINUTE);
+
+  // Nothing opens without Enter: the waiting screen says by when, then the code is void.
+  const idle = await run(view(2, opens + 20 * MINUTE), opens + 20 * MINUTE, null);
+  assert.equal(idle.go, false);
+  assert.ok(idle.t >= lastChance(window, closes));
+  assert.match(idle.frames[0]!, /NEXT: CODE 3 OF 3/);
+  assert.match(idle.frames[0]!, /Press Enter when you want it\. Attendees then have 5 minutes/);
+  assert.match(idle.frames[0]!, /or it can't open and is void/);
+  assert.match(idle.frames[0]!.split("\n").at(-1)!, /^Time left: \d+:\d\d$/, "the countdown is the last line, redrawn in place");
+});
+
+test("Enter presses count one at a time, and only when a code is waiting for one", async () => {
+  const input = Object.assign(new EventEmitter(), { isTTY: false, resume() {}, pause() {} });
+  let interrupted = false;
+  const keys = new EnterKey(input, () => void (interrupted = true));
+  input.emit("data", "\r");
+  let got = 0;
+  const next = keys.next().then(() => got++);
+  input.emit("data", "\r\r");
+  await next;
+  assert.equal(got, 1, "an early press and a double press open only one code");
+  input.emit("data", "\x03");
+  assert.ok(interrupted, "Ctrl+C still stops the console");
+  keys.close();
+  assert.equal(input.listenerCount("data"), 0);
 });
 
 test("host state is kept private to the host", () => {

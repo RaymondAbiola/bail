@@ -8,6 +8,53 @@ export interface Writer {
  * redraws only the last line when nothing else changed, so text selected in the window
  * isn't cleared while the host copies the code.
  */
+export interface KeyInput {
+  isTTY?: boolean;
+  setRawMode?(on: boolean): unknown;
+  on(event: "data", listener: (data: Buffer | string) => void): unknown;
+  off(event: "data", listener: (data: Buffer | string) => void): unknown;
+  resume(): unknown;
+  pause(): unknown;
+}
+
+/**
+ * Enter presses, one at a time. A press only counts once someone is waiting for it, so
+ * pressing Enter twice by accident can't open two codes. Raw mode keeps the key from
+ * echoing onto the screen; Ctrl+C still stops the console.
+ */
+export class EnterKey {
+  readonly #input: KeyInput;
+  readonly #listener: (data: Buffer | string) => void;
+  #waiting: (() => void) | null = null;
+
+  constructor(input: KeyInput = process.stdin, onInterrupt: () => void = () => process.kill(process.pid, "SIGINT")) {
+    this.#input = input;
+    this.#listener = (data) => {
+      const text = data.toString();
+      if (text.includes("\x03")) return onInterrupt();
+      if ((text.includes("\r") || text.includes("\n")) && this.#waiting) {
+        const resolve = this.#waiting;
+        this.#waiting = null;
+        resolve();
+      }
+    };
+    if (input.isTTY) input.setRawMode?.(true);
+    input.on("data", this.#listener);
+    input.resume();
+  }
+
+  /** Resolves on the next Enter. */
+  next(): Promise<void> {
+    return new Promise((resolve) => (this.#waiting = resolve));
+  }
+
+  close(): void {
+    this.#input.off("data", this.#listener);
+    if (this.#input.isTTY) this.#input.setRawMode?.(false);
+    this.#input.pause();
+  }
+}
+
 export class TerminalScreen {
   readonly #out: Writer;
   readonly #tty: boolean;

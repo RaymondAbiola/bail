@@ -63,8 +63,8 @@ The top half shows the pieces. People use Bail apps, and the apps talk to one lo
 The bottom half shows one event:
 
 1. **RSVP.** Pay a small deposit. The web app creates a ticket key in your browser.
-2. **Live codes.** During the call the host shows three codes at random moments. Each code is fixed onchain as its window opens, so it can't be swapped afterwards.
-3. **Check in.** Type each code within two minutes; a typo can be corrected inside the window. Catching two of the three means you attended, and nobody else can erase that.
+2. **Live codes.** During the call the host shows three codes, each when the host chooses, with the last one kept for the end. Each code is fixed onchain as its window opens, so it can't be swapped afterwards.
+3. **Check in.** Type each code within its window (five minutes by default); a typo can be corrected inside the window. Catching every code means you attended, and nobody else can erase that. An event can ask for fewer, but then anyone who has caught enough can leave early.
 4. **Disputes.** If your phone died, two attendees can vouch for you. Every event names an arbiter, who can only refund everyone.
 5. **Settle.** Anyone can settle once the deadlines pass. Attendees get their deposit back plus a share of the no-shows' deposits; no-shows get nothing.
 
@@ -317,7 +317,7 @@ At NEAR's storage price (1 NEAR per 100 KB), a 30-seat event prepays about 0.3 N
 
 ### 7.3 Host console (`apps/host`, CLI)
 
-`create` (event plus storage deposit, and one five-word code per slot, kept on the host's machine), `grant-key` (a function-call key limited to `open_slot` and `reveal`, so the screen-shared terminal holds nothing that can move money), `live` (opens each slot at a random moment timed from the chain's record of the previous slot, shows the code on a line of its own, so triple-clicking copies exactly the words (and copies it to the clipboard if a clipboard tool is installed), with a countdown that updates in place, and reveals it when its window closes), `reveal`, `status`, `report` (attendance and payouts in Markdown, for the README), and `bots` (SDK-driven rehearsal attendees that RSVP through the faucet and catch codes through the relayer). `apps/host/test/sandbox.test.ts` runs a whole event this way on a local NEAR node.
+`create` (event plus storage deposit, and one five-word code per slot, kept on the host's machine), `grant-key` (a function-call key limited to `open_slot` and `reveal`, so the screen-shared terminal holds nothing that can move money), `live` (opens each slot when the host presses Enter, never before the previous window has closed onchain and never on its own, or with `--random` at a random moment timed from the chain's record of the previous slot, shows the code on a line of its own, so triple-clicking copies exactly the words (and copies it to the clipboard if a clipboard tool is installed), with a countdown that updates in place, and reveals it when its window closes), `reveal`, `status`, `report` (attendance and payouts in Markdown, for the README), and `bots` (SDK-driven rehearsal attendees that RSVP through the faucet and catch codes through the relayer). `apps/host/test/sandbox.test.ts` runs a whole event this way on a local NEAR node.
 
 ### 7.4 Web app (`apps/web`)
 

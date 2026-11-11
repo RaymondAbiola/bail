@@ -68,7 +68,7 @@ test("the console runs a whole event with SDK-driven attendees, and the keeper s
     await sb.advanceTo(view, (await view.event(id))!.schedule.checkin_opens_at_ms);
     const opened: number[] = [];
     await runLive({ ...host, organizer: undefined }, id, {
-      earliest: true,
+      timing: "earliest",
       show: () => {},
       sleepUntil: (ms) => sb.advanceTo(view, ms),
       onOpen: async (slot) => {

@@ -4,7 +4,6 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 
 import { BailView, RelayerClient, TESTNET, phase } from "@bail/sdk";
@@ -20,13 +19,14 @@ import { loadState, stateDir } from "./state.ts";
 const HELP = `bail-host <command> [options]
 
   create      --organizer <account> --arbiter <account> --opens <+15m | ISO date>
-              [--deposit 1] [--capacity 30] [--slots 3] [--required 2] [--window 5]
+              [--deposit 1] [--capacity 30] [--slots 3] [--required <all slots>] [--window 5]
               [--checkin 25] [--reveal 15] [--dispute 30] [--cancel-before 60] [--token <id>]
               Creates the event, prepays its storage, and makes its codes. Minutes, USDC.
+              Make check-in as long as the part of the event people must stay for.
   grant-key   <event>   Adds a key that can only open slots and reveal codes.
-  live        <event>   [--manual] Runs check-in: opens each code at a random moment,
-                        shows it large, and reveals it when its window closes.
-                        --manual waits for Enter before each code instead.
+  live        <event>   [--random] Runs check-in: opens each code when you press Enter,
+                        shows it, and reveals it when its window closes.
+                        --random opens each at a random moment instead.
   reveal      <event>   Reveals any opened code whose window has closed.
   status      <event>   The event's phase, seats and codes.
   report      <event>   Attendance and payouts, in Markdown.
@@ -57,13 +57,13 @@ async function main(): Promise<void> {
       deposit: { type: "string", default: "1" },
       capacity: { type: "string", default: "30" },
       slots: { type: "string", default: "3" },
-      required: { type: "string", default: "2" },
+      required: { type: "string" },
       window: { type: "string", default: "5" },
       checkin: { type: "string", default: "25" },
       reveal: { type: "string", default: "15" },
       dispute: { type: "string", default: "30" },
       "cancel-before": { type: "string", default: "60" },
-      manual: { type: "boolean", default: false },
+      random: { type: "boolean", default: false },
       relayer: { type: "string" },
       count: { type: "string", default: "3" },
       miss: { type: "string", default: "1" },
@@ -94,7 +94,8 @@ async function main(): Promise<void> {
         checkinOpensAt: parseWhen(values.opens, await view.now()),
         checkinMinutes: Number(values.checkin),
         slots: Number(values.slots),
-        required: Number(values.required),
+        // Every code by default: with fewer, anyone who has caught enough can leave early.
+        required: Number(values.required ?? values.slots),
         windowMinutes: Number(values.window),
         revealMinutes: Number(values.reveal),
         disputeMinutes: Number(values.dispute),
@@ -109,15 +110,9 @@ async function main(): Promise<void> {
       console.log(`added slot key ${key} to ${state.organizer}; it can only call open_slot and reveal`);
       return;
     }
-    case "live": {
-      const rl = values.manual ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
-      await runLive(host, needEvent(), {
-        earliest: values.manual,
-        beforeOpen: rl ? async (slot) => void (await rl.question(`  Press Enter to show code ${slot + 1}. `)) : undefined,
-      });
-      rl?.close();
+    case "live":
+      await runLive(host, needEvent(), { timing: values.random ? "random" : "host" });
       return;
-    }
     case "reveal": {
       const revealed = await revealAll(host, needEvent());
       console.log(revealed.length ? `revealed codes ${revealed.map((s) => s + 1).join(", ")}` : "nothing to reveal yet");
