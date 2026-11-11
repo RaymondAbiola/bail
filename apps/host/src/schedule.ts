@@ -3,6 +3,11 @@ import type { NewEvent } from "@bail/sdk";
 export const MINUTE = 60_000;
 /** Slack around every code window, because block times are not exact. */
 export const MARGIN_MS = 15_000;
+/**
+ * Room kept for each code still to come, for the open and reveal transactions and a throttled
+ * RPC. Without it a late random draw can leave the last code no time, as it did in the dry run.
+ */
+export const LATENCY_MS = 45_000;
 
 export interface EventPlan {
   token: string;
@@ -41,7 +46,7 @@ export function parseAmount(value: string, decimals: number): bigint {
 export function buildEvent(plan: EventPlan, nowMs: number): NewEvent {
   const window = plan.windowMinutes * MINUTE;
   const checkin = plan.checkinMinutes * MINUTE;
-  const needed = plan.slots * (window + MARGIN_MS) + MARGIN_MS;
+  const needed = plan.slots * (window + MARGIN_MS + LATENCY_MS) + MARGIN_MS;
   if (checkin < needed) {
     throw new Error(`check-in must be at least ${Math.ceil(needed / MINUTE)} minutes for ${plan.slots} codes of ${plan.windowMinutes} minutes`);
   }
@@ -64,7 +69,8 @@ export function buildEvent(plan: EventPlan, nowMs: number): NewEvent {
 
 /**
  * When slot `slot` may open: after the previous window has closed onchain, and early
- * enough that it and every later slot still fit before check-in closes.
+ * enough that it and every later slot still fit before check-in closes. Null means there is
+ * no longer room for it, so the code stays unopened and becomes void.
  */
 export function slotRange(
   slot: number,
@@ -73,10 +79,10 @@ export function slotRange(
   opensAt: number,
   closesAt: number,
   previousOpenedAt: number | null,
-): { earliest: number; latest: number } {
+): { earliest: number; latest: number } | null {
   const earliest = previousOpenedAt === null ? opensAt + MARGIN_MS : previousOpenedAt + windowMs + MARGIN_MS;
-  const latest = closesAt - (slots - slot) * (windowMs + MARGIN_MS);
-  if (earliest + windowMs + MARGIN_MS > closesAt) throw new Error(`too late to open code ${slot + 1}`);
+  if (earliest + windowMs + MARGIN_MS > closesAt) return null;
+  const latest = closesAt - (slots - slot) * (windowMs + MARGIN_MS + LATENCY_MS);
   return { earliest, latest: Math.max(earliest, latest) };
 }
 

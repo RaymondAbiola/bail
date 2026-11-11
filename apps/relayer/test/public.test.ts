@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { siteConfig, siteServer, tunnelUrl } from "../src/public.ts";
+import { AddressTracker, siteConfig, siteServer, tunnelUrl } from "../src/public.ts";
 
 test("a quick tunnel's address is read from cloudflared's log", () => {
   const banner = "2026-11-10T21:00:00Z INF |  https://random-words-here-1234.trycloudflare.com                          |";
@@ -69,4 +69,12 @@ test("the static server serves the built site and nothing outside it", async () 
   } finally {
     server.close();
   }
+});
+
+test("a tunnel that prints the same address again is not a new address", () => {
+  const tracker = new AddressTracker();
+  assert.equal(tracker.see("https://a.trycloudflare.com"), "first");
+  assert.equal(tracker.see("https://a.trycloudflare.com"), "same", "a reconnect repeats the address: no reload warning");
+  assert.equal(tracker.see("https://b.trycloudflare.com"), "changed", "a genuinely new address is reported");
+  assert.equal(tracker.see("https://b.trycloudflare.com"), "same");
 });

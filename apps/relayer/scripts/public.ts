@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { siteConfig, siteServer, tunnelUrl } from "../src/public.ts";
+import { AddressTracker, siteConfig, siteServer, tunnelUrl } from "../src/public.ts";
 
 const relayerDir = new URL("../", import.meta.url).pathname;
 const webDir = join(relayerDir, "../web");
@@ -126,14 +126,13 @@ function openTunnel(name: string, target: string, onUrl: (url: string) => void):
 
 const firstUrl = (name: string, target: string) =>
   new Promise<{ url: string }>((resolve) => {
-    let first = true;
+    const tracker = new AddressTracker();
     const holder = { url: "" };
     openTunnel(name, target, (url) => {
+      const seen = tracker.see(url);
       holder.url = url;
-      if (first) {
-        first = false;
-        resolve(holder);
-      } else {
+      if (seen === "first") resolve(holder);
+      else if (seen === "changed") {
         log(`NEW ${name.toUpperCase()} ADDRESS: ${url}`);
         onRestart(name, url);
       }

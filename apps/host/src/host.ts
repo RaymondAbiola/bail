@@ -4,9 +4,11 @@ import { Account, KeyPair, KeyPairSigner, actions, nearToYocto, teraToGas } from
 import type { KeyPairString } from "near-api-js";
 
 import { ChainClock } from "./clock.ts";
+import { copyToClipboard } from "./clipboard.ts";
 import { renderCode, renderWaiting } from "./display.ts";
 import { type EventPlan, buildEvent, randomMoment, slotRange } from "./schedule.ts";
 import { type EventState, loadState, saveState } from "./state.ts";
+import { TerminalScreen } from "./terminal.ts";
 
 /** open_slot and reveal are cheap; never attach the maximum, which a function-call key pays for up front. */
 const HOST_TGAS = 30;
@@ -87,7 +89,16 @@ export async function runLive(host: Host, eventId: number, options: LiveOptions 
   const { view } = host;
   const state = loadState(host.stateDir, host.contractId, eventId);
   const account = hostAccount(host, state);
-  const show = options.show ?? ((screen: string) => process.stdout.write(`\x1b[2J\x1b[H${screen}`));
+  const screen = options.show ? null : new TerminalScreen();
+  const show = options.show ?? ((frame: string) => screen!.show(frame));
+  if (screen) {
+    // Leave the alternate screen however this ends, so the terminal is never left blank.
+    process.once("exit", () => screen.close());
+    process.once("SIGINT", () => {
+      screen.close();
+      process.exit(130);
+    });
+  }
   const clock = new ChainClock(view);
   const sleepUntil = options.sleepUntil ?? ((ms: number) => clock.sleepUntil(ms));
 
@@ -96,10 +107,17 @@ export async function runLive(host: Host, eventId: number, options: LiveOptions 
   const { slots, window_ms: windowMs } = event.checkin;
   const { checkin_opens_at_ms: opensAt, checkin_closes_at_ms: closesAt } = event.schedule;
 
+  const shown: string[] = [];
+  let noRoomFor: number | null = null;
   for (let slot = 0; slot < slots; slot++) {
     const code = state.codes[slot]!;
+    let note: string | undefined;
     if (!event.slots[slot]) {
       const range = slotRange(slot, slots, windowMs, opensAt, closesAt, event.slots[slot - 1]?.opened_at_ms ?? null);
+      if (!range) {
+        noRoomFor = slot;
+        break;
+      }
       show(renderWaiting(slot, slots));
       await sleepUntil(range.earliest);
       await options.beforeOpen?.(slot);
@@ -111,10 +129,17 @@ export async function runLive(host: Host, eventId: number, options: LiveOptions 
       });
       event = (await view.event(eventId))!;
       await options.onOpen?.(slot, code);
+      if (!options.show) {
+        const tool = await copyToClipboard(code);
+        note = tool
+          ? `Copied to your clipboard (${tool}). Paste it into the call chat.`
+          : "Triple-click the green line to copy it. Nothing else is on that line.";
+      }
     }
+    shown.push(`Code ${slot + 1}: ${code}`);
     const windowEnds = event.slots[slot]!.opened_at_ms + windowMs;
     if (options.sleepUntil) {
-      show(renderCode(code, slot, slots, windowEnds - (await view.now())));
+      show(renderCode(code, slot, slots, windowEnds - (await view.now()), true, note));
       await options.sleepUntil(windowEnds);
     } else {
       // Count the seconds locally; ask the chain only now and then, and to confirm the end.
@@ -122,7 +147,7 @@ export async function runLive(host: Host, eventId: number, options: LiveOptions 
       for (;;) {
         const now = await clock.fresh();
         if (now >= windowEnds && (await clock.sync()) >= windowEnds) break;
-        show(renderCode(code, slot, slots, Math.max(0, windowEnds - now)));
+        show(renderCode(code, slot, slots, Math.max(0, windowEnds - now), true, note));
         await new Promise((r) => setTimeout(r, 1000));
       }
     }
@@ -131,7 +156,13 @@ export async function runLive(host: Host, eventId: number, options: LiveOptions 
     }
     event = (await view.event(eventId))!;
   }
-  show("\n  Check-in is over and every code is revealed. Attendees can vouch until the dispute window ends.\n");
+  const ending =
+    noRoomFor === null
+      ? "Check-in is over and every code is revealed. Attendees can vouch until the dispute window ends."
+      : `Check-in is over. There was no time left to open code ${noRoomFor + 1}, so it stays unopened and is void, which only lowers what everyone needs.`;
+  const summary = ["", ...shown, "", ending].join("\n");
+  if (screen) screen.close(summary);
+  else show(summary);
 }
 
 /** Reveals every opened code whose window has closed, for example after `live --no-reveal`. */

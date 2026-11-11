@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { renderCode } from "../src/display.ts";
-import { type EventPlan, MARGIN_MS, MINUTE, buildEvent, parseAmount, parseWhen, randomMoment, slotRange } from "../src/schedule.ts";
+import { copyToClipboard } from "../src/clipboard.ts";
+import { renderCode, renderWaiting } from "../src/display.ts";
+import { type EventPlan, LATENCY_MS, MARGIN_MS, MINUTE, buildEvent, parseAmount, parseWhen, randomMoment, slotRange } from "../src/schedule.ts";
 import { loadState, saveState } from "../src/state.ts";
+import { TerminalScreen } from "../src/terminal.ts";
 
 const NOW = 1_800_000_000_000;
 
@@ -40,36 +42,102 @@ test("an event plan becomes the contract's create_event argument", () => {
 });
 
 test("schedules the live console couldn't run are refused", () => {
-  assert.throws(() => buildEvent(plan({ checkinMinutes: 6 }), NOW), /at least 7 minutes/);
-  assert.doesNotThrow(() => buildEvent(plan({ checkinMinutes: 7 }), NOW));
+  // 3 codes of 2 minutes need 3 x (2 min + margin + latency) + margin = 9.25 minutes.
+  assert.throws(() => buildEvent(plan({ checkinMinutes: 9 }), NOW), /at least 10 minutes/);
+  assert.doesNotThrow(() => buildEvent(plan({ checkinMinutes: 10 }), NOW));
+  // The real event: 3 codes of 5 minutes.
+  assert.throws(() => buildEvent(plan({ windowMinutes: 5, checkinMinutes: 18 }), NOW), /at least 19 minutes/);
+  assert.doesNotThrow(() => buildEvent(plan({ windowMinutes: 5, checkinMinutes: 25 }), NOW));
   assert.throws(() => buildEvent(plan({ checkinOpensAt: NOW }), NOW), /future/);
 });
 
 test("each slot opens after the previous window and leaves room for the rest", () => {
   const opens = 1000 * MINUTE;
-  const closes = opens + 20 * MINUTE;
-  const window = 2 * MINUTE;
-  const first = slotRange(0, 3, window, opens, closes, null);
+  const closes = opens + 25 * MINUTE;
+  const window = 5 * MINUTE;
+  const step = window + MARGIN_MS + LATENCY_MS;
+  const first = slotRange(0, 3, window, opens, closes, null)!;
   assert.equal(first.earliest, opens + MARGIN_MS);
-  assert.equal(first.latest, closes - 3 * (window + MARGIN_MS));
-  const second = slotRange(1, 3, window, opens, closes, opens + 5 * MINUTE);
-  assert.equal(second.earliest, opens + 5 * MINUTE + window + MARGIN_MS);
-  assert.equal(second.latest, closes - 2 * (window + MARGIN_MS));
-  const late = slotRange(2, 3, window, opens, closes, closes - 4.5 * MINUTE);
-  assert.equal(late.latest, late.earliest, "a late previous slot leaves no choice, but still fits");
-  assert.throws(() => slotRange(2, 3, window, opens, closes, closes - 3 * MINUTE), /too late/);
+  assert.equal(first.latest, closes - 3 * step);
+  const second = slotRange(1, 3, window, opens, closes, opens + 6 * MINUTE)!;
+  assert.equal(second.earliest, opens + 6 * MINUTE + window + MARGIN_MS);
+  assert.equal(second.latest, closes - 2 * step);
   for (let i = 0; i < 100; i++) {
     const at = randomMoment(first);
     assert.ok(at >= first.earliest && at <= first.latest);
   }
 });
 
-test("the code is shown large, letter by letter, with its countdown", () => {
-  const screen = renderCode("tiger maple seven ocean lamp", 1, 3, 95_000, false);
-  assert.match(screen, /CODE 2 OF 3/);
-  assert.match(screen, /T I G E R/);
-  assert.match(screen, /L A M P/);
-  assert.match(screen, /Closes in 1:35/);
+test("whatever moments are drawn, every code fits, even with transaction delays", () => {
+  const opens = 1000 * MINUTE;
+  const closes = opens + 25 * MINUTE;
+  const window = 5 * MINUTE;
+  // The worst case: every code opens at the latest moment it was allowed, and each open
+  // transaction takes the whole latency allowance to land.
+  let previous: number | null = null;
+  for (let slot = 0; slot < 3; slot++) {
+    const range = slotRange(slot, 3, window, opens, closes, previous);
+    assert.ok(range, `code ${slot + 1} still has room`);
+    previous = range.latest + LATENCY_MS;
+    assert.ok(previous + window <= closes, `code ${slot + 1} ends before check-in does`);
+  }
+});
+
+test("the dry run's failure: a code with no room left is skipped, not a crash", () => {
+  const opens = 1000 * MINUTE;
+  const closes = opens + 12 * MINUTE;
+  const window = 2 * MINUTE;
+  // Code 2 opened late, so code 3 would end after check-in closes.
+  assert.equal(slotRange(2, 3, window, opens, closes, closes - window - 5_000), null);
+  assert.ok(slotRange(2, 3, window, opens, closes, closes - 5 * MINUTE), "and with 5 minutes to spare it still fits");
+});
+
+test("the code is on one line of its own, so copying it copies exactly the words", () => {
+  const code = "artefact ostrich pupil mask museum";
+  const plain = renderCode(code, 1, 3, 95_000, false).split("\n");
+  assert.deepEqual(plain.filter((line) => line.includes("artefact")), [code], "one line has the code, and it is only the code");
+  assert.ok(!plain.some((line) => /(\b[a-z]\b ){4}/i.test(line)), "no letter-by-letter spacing anywhere");
+  assert.match(plain.join("\n"), /CODE 2 OF 3 IS LIVE/);
+  assert.equal(plain[plain.length - 1], "Closes in 1:35", "the countdown is the last line");
+  // With colour on, the escape codes wrap the line but are not text, so a copy still has only the words.
+  const coloured = renderCode(code, 1, 3, 95_000, true).split("\n").find((line) => line.includes("artefact"))!;
+  assert.equal(coloured.replace(/\x1b\[[0-9;]*m/g, ""), code);
+  assert.match(renderWaiting(0, 3), /Waiting for code 1 of 3/);
+});
+
+test("the terminal redraws only the countdown, and leaves the alternate screen with a plain summary", () => {
+  const written: string[] = [];
+  const screen = new TerminalScreen({ write: (chunk) => void written.push(chunk) }, true);
+  const frame = (left: string) => ["", "CODE 1 OF 3 IS LIVE", "", "tiger maple seven ocean lamp", "", "hint", `Closes in ${left}`].join("\n");
+  screen.show(frame("4:59"));
+  screen.show(frame("4:58"));
+  screen.show(frame("4:57"));
+  assert.equal(written[0], "\x1b[?1049h", "enters the alternate screen first, so nothing fills the scrollback");
+  assert.match(written[1]!, /^\x1b\[2J\x1b\[H/, "the first frame is a full paint");
+  assert.equal(written[2], "\r\x1b[2KCloses in 4:58", "later frames rewrite only the last line");
+  assert.equal(written[3], "\r\x1b[2KCloses in 4:57");
+  screen.show(frame("4:57").replace("tiger", "zebra"));
+  assert.match(written[4]!, /^\x1b\[2J/, "a changed code repaints everything");
+  screen.close("Code 1: zebra maple seven ocean lamp");
+  assert.deepEqual(written.slice(-2), ["\x1b[?1049l", "Code 1: zebra maple seven ocean lamp\n"]);
+
+  const piped: string[] = [];
+  const quiet = new TerminalScreen({ write: (chunk) => void piped.push(chunk) }, false);
+  quiet.show(frame("4:59"));
+  quiet.show(frame("4:58"));
+  assert.equal(piped.length, 1, "piped output isn't flooded once a second");
+  assert.ok(!piped[0]!.includes("\x1b"));
+});
+
+test("the code is copied with whichever clipboard tool exists, and nothing breaks without one", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bail-clip-"));
+  const sink = join(dir, "clipboard.txt");
+  // wl-copy is the first tool tried, so this fake wins whatever is installed on the machine.
+  writeFileSync(join(dir, "wl-copy"), `#!/bin/sh\ncat > "${sink}"\n`, { mode: 0o755 });
+  const tool = await copyToClipboard("seat rescue clap brave bleak", { PATH: `${dir}:/usr/bin:/bin` });
+  assert.equal(tool, "wl-copy");
+  assert.equal(readFileSync(sink, "utf8"), "seat rescue clap brave bleak", "exactly the words, no newline or spaces");
+  assert.equal(await copyToClipboard("anything", { PATH: mkdtempSync(join(tmpdir(), "bail-empty-")) }), null);
 });
 
 test("host state is kept private to the host", () => {

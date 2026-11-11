@@ -317,7 +317,7 @@ At NEAR's storage price (1 NEAR per 100 KB), a 30-seat event prepays about 0.3 N
 
 ### 7.3 Host console (`apps/host`, CLI)
 
-`create` (event plus storage deposit, and one five-word code per slot, kept on the host's machine), `grant-key` (a function-call key limited to `open_slot` and `reveal`, so the screen-shared terminal holds nothing that can move money), `live` (opens each slot at a random moment timed from the chain's record of the previous slot, shows the code large for screen share or reading aloud with a countdown, and reveals it when its window closes), `reveal`, `status`, `report` (attendance and payouts in Markdown, for the README), and `bots` (SDK-driven rehearsal attendees that RSVP through the faucet and catch codes through the relayer). `apps/host/test/sandbox.test.ts` runs a whole event this way on a local NEAR node.
+`create` (event plus storage deposit, and one five-word code per slot, kept on the host's machine), `grant-key` (a function-call key limited to `open_slot` and `reveal`, so the screen-shared terminal holds nothing that can move money), `live` (opens each slot at a random moment timed from the chain's record of the previous slot, shows the code on a line of its own, so triple-clicking copies exactly the words (and copies it to the clipboard if a clipboard tool is installed), with a countdown that updates in place, and reveals it when its window closes), `reveal`, `status`, `report` (attendance and payouts in Markdown, for the README), and `bots` (SDK-driven rehearsal attendees that RSVP through the faucet and catch codes through the relayer). `apps/host/test/sandbox.test.ts` runs a whole event this way on a local NEAR node.
 
 ### 7.4 Web app (`apps/web`)
 

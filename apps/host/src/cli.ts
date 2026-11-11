@@ -20,8 +20,8 @@ import { loadState, stateDir } from "./state.ts";
 const HELP = `bail-host <command> [options]
 
   create      --organizer <account> --arbiter <account> --opens <+15m | ISO date>
-              [--deposit 1] [--capacity 30] [--slots 3] [--required 2] [--window 2]
-              [--checkin 20] [--reveal 15] [--dispute 30] [--cancel-before 60] [--token <id>]
+              [--deposit 1] [--capacity 30] [--slots 3] [--required 2] [--window 5]
+              [--checkin 25] [--reveal 15] [--dispute 30] [--cancel-before 60] [--token <id>]
               Creates the event, prepays its storage, and makes its codes. Minutes, USDC.
   grant-key   <event>   Adds a key that can only open slots and reveal codes.
   live        <event>   [--manual] Runs check-in: opens each code at a random moment,
@@ -58,8 +58,8 @@ async function main(): Promise<void> {
       capacity: { type: "string", default: "30" },
       slots: { type: "string", default: "3" },
       required: { type: "string", default: "2" },
-      window: { type: "string", default: "2" },
-      checkin: { type: "string", default: "20" },
+      window: { type: "string", default: "5" },
+      checkin: { type: "string", default: "25" },
       reveal: { type: "string", default: "15" },
       dispute: { type: "string", default: "30" },
       "cancel-before": { type: "string", default: "60" },

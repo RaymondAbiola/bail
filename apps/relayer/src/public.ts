@@ -7,6 +7,22 @@ import { extname, join, normalize, sep } from "node:path";
 
 const TUNNEL = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/;
 
+/**
+ * cloudflared prints its address again when it reconnects, so the same address showing up
+ * twice is not a new address and attendees must not be told to reload.
+ */
+export class AddressTracker {
+  #current: string | null = null;
+
+  /** "first" the first time, "changed" for a different address, "same" for a repeat. */
+  see(url: string): "first" | "changed" | "same" {
+    const previous = this.#current;
+    this.#current = url;
+    if (previous === null) return "first";
+    return previous === url ? "same" : "changed";
+  }
+}
+
 /** The public address a quick tunnel announces in its log, if this line has one. */
 export function tunnelUrl(line: string): string | null {
   return TUNNEL.exec(line)?.[0] ?? null;
