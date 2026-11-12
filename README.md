@@ -84,6 +84,7 @@ You will see the app at `http://localhost:5180/` and a stand-in host screen at `
 - **NEP-366 meta transactions.** The relayer sponsors an attendee's deposit only if it is exactly the RSVP transfer, so attendees pay no gas.
 - **Implicit accounts.** A ticket key is also the key of a NEAR implicit account, so one backup is enough.
 - **NEP-141 `ft_transfer_call`.** Deposits arrive as a transfer with an RSVP note. The same path serves deposits from NEAR Intents.
+- **Sputnik DAO as arbiter.** An event's arbiter can be a community's DAO, with no extra code in Bail: the council votes on a FunctionCall proposal to `void_event`. On testnet, a two-member DAO voted to void event 6 and everyone was refunded ([docs/dao-arbiter-event.md](docs/dao-arbiter-event.md)); the sandbox test `a_sputnik_dao_votes_to_void_an_event` runs the same flow with the DAO code testnet's factory deploys.
 - **`ed25519_verify` host function.** The contract verifies ticket signatures itself, so attendees need no NEAR account.
 
 ## Limits
