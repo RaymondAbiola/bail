@@ -146,6 +146,7 @@ test("attempt numbers only ever go up, whatever the chain or this browser rememb
 
 test("failures are worded plainly, and a lost connection is not mistaken for a refusal", () => {
   assert.equal(describeError(new TypeError("Failed to fetch")).kind, "network");
+  assert.equal(describeError(new TypeError("Failed to fetch")).message, "Bail's relayer isn't running right now, so this can't be sent. Results and public records still work.");
   assert.equal(describeError(new Error("code window is closed")).message, "Code window is closed.");
   assert.equal(describeError(new Error("Smart contract panicked: already vouched")).message, "Already vouched.");
   const limited = describeError(new Error("too many requests for this ticket"));

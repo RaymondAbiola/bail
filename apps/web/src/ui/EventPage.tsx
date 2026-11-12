@@ -2,7 +2,8 @@ import { type Event, phase as phaseOf } from "@bail/sdk";
 
 import { useApp } from "../context.tsx";
 import { useChainNow, useEventState, usePoll, useStoredTicket } from "../hooks.ts";
-import { formatUsdc } from "../lib/money.ts";
+import { formatUnits, formatUsdc } from "../lib/money.ts";
+import { pastEventOutcome } from "../lib/past-events.ts";
 import { describePhase, rsvpBlock } from "../lib/rules.ts";
 import { liveSlot } from "../lib/slots.ts";
 import { OtherChain } from "./OtherChain.tsx";
@@ -58,14 +59,15 @@ export function EventPage({ id, view: sub }: { id: number; view: "main" | "rsvp"
   const phase = phaseOf(event, now);
   const tone = describePhase(event, phase);
   const block = rsvpBlock(event, now);
+  const finishedVisitor = !stored && (event.closed || event.tally?.stage === "Done");
   // While a code is live, the code is the whole screen: no heading pushing it down the page.
   const liveNow = sub === "main" && !!stored && !!state.data.ticket && event.status === "Active" && phase === "CheckIn" && liveSlot(event, now) !== null;
 
   return (
     <div className={`page event-page ${liveNow ? "is-live" : ""}`}>
       <header className="event-heading">
-        <div><p className="eyebrow">Event #{id} <span aria-hidden="true">/</span> {liveNow ? "Live check-in" : "Your next commitment"}</p><h1>{meta.title ?? `Event #${id}`}</h1>{meta.description && <p className="event-description">{meta.description}</p>}</div>
-        <div className="event-heading-meta"><span className={`badge ${tone.tone}`}>{tone.label}</span>{meta.callUrl && <a className="text-link" href={meta.callUrl} target="_blank" rel="noreferrer">Join the call ↗</a>}</div>
+        <div><p className="eyebrow">Event #{id} <span aria-hidden="true">/</span> {liveNow ? "Live check-in" : finishedVisitor ? "Event results" : "Your next commitment"}</p><h1>{meta.title ?? `Event #${id}`}</h1>{meta.description && <p className="event-description">{meta.description}</p>}</div>
+        <div className="event-heading-meta"><span className={`badge ${tone.tone}`}>{tone.label}</span>{meta.callUrl && !finishedVisitor && <a className="text-link" href={meta.callUrl} target="_blank" rel="noreferrer">Join the call ↗</a>}</div>
       </header>
       <div className="event-layout">
       <div className="column">
@@ -76,10 +78,15 @@ export function EventPage({ id, view: sub }: { id: number; view: "main" | "rsvp"
         )}
         {stale && <p className="hint" role="status">The time shown may be out of date. It refreshes by itself.</p>}
 
-        {sub === "rsvp" ? (
-          <RsvpFlow eventId={id} event={event} />
-        ) : sub === "restore" ? (
+        {sub === "restore" ? (
           <RestoreForm eventId={id} />
+        ) : finishedVisitor ? (
+          <>
+            <FinishedSummary id={id} event={event} />
+            <a className="btn quiet" href={`#/event/${id}/restore`}>Restore my ticket</a>
+          </>
+        ) : sub === "rsvp" ? (
+          <RsvpFlow eventId={id} event={event} />
         ) : stored ? (
           <TicketPanel eventId={id} event={event} state={state.data} loading={state.loading} now={now} refresh={state.refresh} />
         ) : (
@@ -102,13 +109,40 @@ export function EventPage({ id, view: sub }: { id: number; view: "main" | "rsvp"
 
       <aside className="column event-evidence" aria-label="Event rules and public evidence">
         <Evidence id={id} event={event} now={now} updatedAt={state.updatedAt} />
-        <details className="disclosure rules-disclosure" open={!liveNow}><summary>How it works</summary><div><HowItWorks event={event} /></div></details>
+        <details className="disclosure rules-disclosure" open={!liveNow && !finishedVisitor}><summary>{finishedVisitor ? "Event rules" : "How it works"}</summary><div><HowItWorks event={event} /></div></details>
         <PublicDetails id={id} event={event} />
-        {sub === "main" && !stored && <OtherChain />}
+        {sub === "main" && !stored && !finishedVisitor && <OtherChain />}
         <p className="small"><a href={`#/event/${id}/organizer`}>Organizer view (read only) ↗</a></p>
       </aside>
       </div>
     </div>
+  );
+}
+
+function FinishedSummary({ id, event }: { id: number; event: Event }) {
+  const outcome = pastEventOutcome(event);
+  return (
+    <section className="ticket" aria-labelledby="finished-title">
+      <div className="ticket-topline"><span>Public results</span><Icon name="check" /></div>
+      <h2 id="finished-title">This event has finished</h2>
+      {outcome ? (
+        <>
+          <dl className="facts">
+            <div><dt>Seats taken</dt><dd>{outcome.seats}</dd></div>
+            <div><dt>Attended</dt><dd>{outcome.attended}</dd></div>
+            <div><dt>Vouched</dt><dd>{outcome.vouched}</dd></div>
+            <div><dt>Forfeited</dt><dd>{outcome.forfeited}</dd></div>
+            <div><dt>Refunded</dt><dd>{outcome.refunded}</dd></div>
+            <div><dt>Deposit</dt><dd>{formatUsdc(event.deposit)}</dd></div>
+            <div className="wide"><dt>Due per attendee who qualified by codes</dt><dd>{outcome.duePerAttendee === null ? "No code-qualified attendees" : formatUsdc(outcome.duePerAttendee)}</dd></div>
+          </dl>
+          {outcome.duePerAttendee !== null && <p className="small muted">{formatUnits(event.deposit)} deposit returned + {formatUnits(event.tally!.bonus)} bonus, in test USDC.</p>}
+          {outcome.vouched > 0 && <p className="small muted">Vouched attendees receive their deposit back without a bonus.</p>}
+          <p className="small muted">These are the amounts due from the tally. Individual transfers may still be pending.</p>
+        </>
+      ) : <p className="muted">This event is closed. Detailed results are not available.</p>}
+      <a className="btn primary block" href={`#/event/${id}/organizer`}>View public record <Icon name="arrow" /></a>
+    </section>
   );
 }
 

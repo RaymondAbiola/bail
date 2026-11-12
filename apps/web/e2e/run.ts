@@ -484,7 +484,40 @@ async function main() {
     const stranger = await (await browser.createBrowserContext()).newPage();
     await stranger.setViewport(PHONE);
     await stranger.goto(`${siteUrl}/#/event/0`, { waitUntil: "domcontentloaded" });
-    await waitText(stranger, "Can't RSVP");
+    await waitText(stranger, "This event has finished");
+    await waitText(stranger, "1.5 test USDC");
+    assert.doesNotMatch(await text(stranger), /Your next commitment|Your seat awaits|Seats left|Can't RSVP/i);
+    assert.deepEqual(await stranger.$$eval('.ticket .facts > div', (rows) => Object.fromEntries(rows.map((row) => [row.querySelector('dt')!.textContent, row.querySelector('dd')!.textContent]))), {
+      "Seats taken": "4", Attended: "2", Vouched: "1", Forfeited: "1", Refunded: "0", Deposit: "1 test USDC", "Due per attendee who qualified by codes": "1.5 test USDC",
+    });
+    await shot(stranger, "16-finished-visitor");
+    await clickText(stranger, "View public record");
+    await waitText(stranger, "Organizer view, event #0");
+    await stranger.goto(`${siteUrl}/#/event/0/rsvp`, { waitUntil: "domcontentloaded" });
+    await waitText(stranger, "This event has finished");
+    assert.doesNotMatch(await text(stranger), /Before you pay|Your seat awaits|Seats left/);
+    await clickText(stranger, "Restore my ticket");
+    await stranger.waitForSelector("#key");
+    await stranger.type("#key", alice.backup());
+    await clickText(stranger, "Check this key");
+    await waitText(stranger, "has a seat in this event");
+    await clickText(stranger, "Use this ticket");
+    await waitText(stranger, "You attended");
+    await waitText(stranger, "Paid");
+
+    step("a closed event still shows public results on a fresh device");
+    await sb.call(organizer, bail.accountId, "close_event", { event_id: 0, limit: 100 });
+    assert.equal((await view.event(0))!.closed, true);
+    const closedObserver = await (await browser.createBrowserContext()).newPage();
+    await closedObserver.setViewport(PHONE);
+    await closedObserver.goto(`${siteUrl}/#/event/0`, { waitUntil: "domcontentloaded" });
+    await waitText(closedObserver, "This event has finished");
+    await waitText(closedObserver, "1.5 test USDC");
+    assert.doesNotMatch(await text(closedObserver), /Your next commitment|Your seat awaits|Seats left|Can't RSVP/i);
+    assert.ok(await closedObserver.$('a[href="#/event/0/restore"]'));
+    assert.ok(await closedObserver.$('a[href="#/event/0/organizer"]'));
+    await shot(closedObserver, "16-closed-visitor");
+    await closedObserver.close();
     await stranger.goto(`${siteUrl}/#/event/99`, { waitUntil: "domcontentloaded" });
     await waitText(stranger, "Event #99 not found");
     await shot(stranger, "17-not-found");

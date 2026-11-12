@@ -13,7 +13,7 @@ export interface Described {
 export function describeError(error: unknown): Described {
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
-    return { kind: "network", message: "Could not reach the relayer. Check your connection, then try again." };
+    return { kind: "network", message: "Bail's relayer isn't running right now, so this can't be sent. Results and public records still work." };
   }
   if (/too many|429|rate limit/i.test(message)) {
     return { kind: "rate-limit", message: `${cleanSentence(message)} Wait a moment before trying again.` };
