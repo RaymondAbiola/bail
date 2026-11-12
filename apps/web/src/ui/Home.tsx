@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 
 import { useApp } from "../context.tsx";
 import { CodeStrip } from "./CodeStrip.tsx";
+import { DaoArbiterDemo } from "./DaoArbiterDemo.tsx";
 import { ContractLink } from "./common.tsx";
 import { Icon } from "./Icon.tsx";
 import { PastEvents } from "./PastEvents.tsx";
@@ -54,6 +55,7 @@ export function Home() {
       </section>
 
       <PastEvents />
+      <DaoArbiterDemo />
 
       <section id="why-bail" className="trust-section content-width" aria-labelledby="trust-title">
         <div><span className="eyebrow">Built for trust</span><h2 id="trust-title">Trust you can inspect.</h2><p>See the rules, the arbiter and the evidence before you RSVP. Your host runs the event. Your proof records your attendance.</p><ContractLink account={config.contractId} label="Explore the public contract ↗" /></div>

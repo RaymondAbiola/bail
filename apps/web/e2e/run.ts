@@ -163,12 +163,13 @@ async function main() {
     historyPage.on("pageerror", (e) => historyErrors.push(String(e)));
     let failedHistory = false;
     let changedHistory = false;
+    let daoState: "settled" | "pending" | "missing" | "error" = "settled";
     let relayerRequests = 0;
     await historyPage.setRequestInterception(true);
     historyPage.on("request", (request) => {
       if (request.url().startsWith(relayerUrl)) relayerRequests++;
       if (request.url().endsWith("/config.json")) {
-        void request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ relayerUrl, rpcUrl: sb.rpcUrl, contractId: bail.accountId, token: usdc.accountId }) });
+        void request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ relayerUrl, rpcUrl: sb.rpcUrl, contractId: bail.accountId, token: usdc.accountId, explorerUrl: "https://explorer.example" }) });
         return;
       }
       const body = request.postData();
@@ -176,6 +177,16 @@ async function main() {
         const rpc = JSON.parse(body);
         if (rpc.params?.method_name === "get_event") {
           const id = JSON.parse(Buffer.from(rpc.params.args_base64, "base64").toString()).event_id;
+          if (id === 6) {
+            // Different seats, amount and arbiter prove the demo reads Bail's state.
+            const fixture = daoState === "missing" ? null : makeEvent({ status: "Voided", closed: true, registered: 0, deposit: "750000", arbiter: "council.sputnikv2.testnet", tally: daoState === "pending" ? null : {
+              stage: "Done", cursor: 0, paid_cursor: 0, attended: 0, vouched: 0, forfeited: 0, refunded: 4,
+              pool: "0", bonus: "0", fee: "0", dust: "0", everyone_refunded: true, measured: true, new_records: 0,
+            } });
+            const response = daoState === "error" ? { error: { message: "Demo unavailable" } } : { result: { result: [...Buffer.from(JSON.stringify(fixture))] } };
+            void request.respond({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ jsonrpc: "2.0", id: rpc.id, ...response }) });
+            return;
+          }
           if (id === 4 || id === 5) {
             if (failedHistory && id === 4) {
               void request.respond({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ jsonrpc: "2.0", id: rpc.id, error: { message: "Results unavailable" } }) });
@@ -198,6 +209,17 @@ async function main() {
     await historyPage.goto(`${siteUrl}/`, { waitUntil: "domcontentloaded" });
     await waitText(historyPage, "6 tickets qualified by codes; 5 forfeited");
     await waitText(historyPage, "0.623456 test USDC");
+    await waitText(historyPage, "0.75 test USDC each");
+    const daoSummary = await historyPage.$eval(".dao-demo", (el) => el.textContent);
+    assert.match(daoSummary!, /attendees in this demo were scripted, not real people/);
+    assert.match(daoSummary!, /2 of 2 council votes/);
+    assert.doesNotMatch(daoSummary!, /Due per attendee|No code-qualified attendees/);
+    assert.deepEqual(await historyPage.$$eval(".dao-demo-stats > div", (rows) => rows.map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent])), [
+      ["Status", "Voided"], ["Seats", "4"], ["Refunded", "4"], ["Refunded per ticket", "0.75 test USDC each"], ["Arbiter", "council.sputnikv2.testnet"],
+    ]);
+    assert.equal(await historyPage.$eval('.dao-demo a[href="#/event/6/organizer"]', (a) => a.getAttribute("href")), "#/event/6/organizer");
+    assert.equal(await historyPage.$eval('.dao-demo a[href*="/address/"]', (a) => a.getAttribute("href")), "https://explorer.example/address/council.sputnikv2.testnet");
+    assert.equal(await historyPage.$eval('.dao-demo a[href*="github.com"]', (a) => a.getAttribute("href")), "https://github.com/RaymondAbiola/bail/blob/main/docs/dao-arbiter-event.md");
     assert.equal(await historyPage.$eval('a[href="#/event/4/organizer"]', (a) => a.getAttribute("href")), "#/event/4/organizer");
     assert.equal(await historyPage.$eval('a[href="#/event/5/organizer"]', (a) => a.getAttribute("href")), "#/event/5/organizer");
     for (const width of [320, 390, 1440]) {
@@ -214,6 +236,17 @@ async function main() {
     await waitText(historyPage, "Results could not be read");
     assert.doesNotMatch(await text(historyPage), /7 tickets qualified by codes/);
     await waitText(historyPage, "0.623456 test USDC");
+    await waitText(historyPage, "0.75 test USDC each");
+    for (const state of ["pending", "missing", "error"] as const) {
+      daoState = state;
+      await historyPage.reload({ waitUntil: "domcontentloaded" });
+      await waitText(historyPage, state === "pending" ? "The tally is not settled yet" : state === "missing" ? "This demo is not available" : "Demo results could not be read");
+      assert.doesNotMatch(await historyPage.$eval(".dao-demo", (el) => el.textContent!), /0.75 test USDC each/);
+      await waitText(historyPage, "0.623456 test USDC");
+    }
+    daoState = "settled";
+    await clickText(historyPage, "Retry demo results");
+    await waitText(historyPage, "0.75 test USDC each");
     assert.equal(relayerRequests, 0, "public results need no relayer requests");
     assert.deepEqual(historyErrors, []);
     await historyPage.close();

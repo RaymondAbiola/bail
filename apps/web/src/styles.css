@@ -415,7 +415,18 @@ th { font-size: .75rem; color: var(--ink-soft); font-weight: 500; }
 .past-event-record { grid-column: 1 / -1; font-size: .76rem; color: var(--forest); }
 .past-events-note { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: .74rem; color: var(--ink-soft); }
 .payout-error { color: var(--rose-ink); }
+.dao-demo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px 64px; align-items: center; padding-block: 38px; border-top: 1px solid var(--rule); }
+.dao-demo-copy > p:not(.eyebrow) { margin-block: 18px; line-height: 1.65; }
+.dao-demo-result { min-width: 0; padding: 26px; background: var(--mint); border: 1px solid var(--rule); }
+.dao-demo-result h3 { font-family: var(--serif); font-size: 1.7rem; font-weight: 500; letter-spacing: -.03em; margin-block: 20px; }
+.dao-demo-stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px 16px; margin: 24px 0; }
+.dao-demo-stats dt { font-size: .74rem; color: var(--ink-soft); }
+.dao-demo-stats dd { margin: 6px 0 0; font-size: 1rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dao-demo-arbiter { grid-column: 1 / -1; }
+.dao-demo-retry { margin-block: 20px; }
 @media (max-width: 760px) {
+  .dao-demo { grid-template-columns: 1fr; gap: 26px; }
+  .dao-demo-result { padding: 20px; }
   .past-event-link { grid-template-columns: 1fr; gap: 20px; }
   .past-event-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
   .past-event-stats dd { font-size: 1.1rem; }
