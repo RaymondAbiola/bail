@@ -20,6 +20,19 @@ This repository runs Kickback's real contract, copied unchanged and checked agai
 
 Attendees need no wallet and no NEAR: their ticket key is made in the browser, a relayer pays the gas, and a faucet provides test USDC on testnet.
 
+## Used with real people
+
+| Event | When | Seats | Attended | Forfeited | Each attendee got | Full results |
+|---|---|---|---|---|---|---|
+| Dry run with friends (event 4) | 11 Nov 2026 | 4 | 1 | 3 | 2 test USDC (0.5 back + 1.5) | [docs/dry-run.md](docs/dry-run.md) |
+| First event, a Google Meet call (event 5) | 12 Nov 2026 | 11 | 6 | 5 | 0.916666 test USDC (0.5 back + 0.416666) | [docs/first-event.md](docs/first-event.md) |
+
+Both are on chain and can be checked with `npx bail-host report 4` and `npx bail-host report 5`.
+
+What the dry run changed: one attendee copied a code from the host's terminal with a space between every letter, so it didn't match and they forfeited. The host console now shows each code on a plain line, and the app warns when an entry isn't five words. We also closed a loophole after it: with 2 of 3 codes needed and codes at set times, anyone could leave after the second. The host now chooses when each code opens, and every code is needed by default.
+
+In the first event every code sent matched. One payout failed: an attendee typed `adetomiwa` as their payout address instead of `adetomiwa.testnet`, an account that doesn't exist, so the transfer was refused and the amount is still held by the contract. A ticket's payout address can't be changed after RSVP.
+
 ## Verify it
 
 Each step is "run X, see Y". None needs a private key. Each row names what it needs besides Rust stable and Node 24.
