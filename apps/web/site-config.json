@@ -1,0 +1,9 @@
+{
+  "relayerUrl": "https://relayer.offline.invalid",
+  "explorerUrl": "https://testnet.nearblocks.io",
+  "defaultEventId": 5,
+  "events": {
+    "4": { "title": "Dry run with friends" },
+    "5": { "title": "Bail testers check-in" }
+  }
+}
