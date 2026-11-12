@@ -396,3 +396,27 @@ th { font-size: .75rem; color: var(--ink-soft); font-weight: 500; }
 
 .result-card .facts > div:first-child { grid-column: 1 / -1; padding: 16px 0; border-block: 1px solid var(--rule); }
 .result-card .result-amount { font-family: var(--serif); font-size: clamp(2rem, 4vw, 3.5rem); letter-spacing: -.045em; line-height: 1.15; margin-top: 7px; }
+
+.past-events { border-top: 1px solid var(--rule); padding-block: 38px; }
+.past-events-summary { font-size: .9rem; color: var(--ink-soft); margin-top: 16px; }
+.past-events-list { list-style: none; padding: 0; margin: 24px 0 14px; }
+.past-events-list > li { border-top: 1px solid var(--line); }
+.past-events-list > li:last-child { border-bottom: 1px solid var(--line); }
+.past-event-link { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 16px 32px; padding-block: 24px; text-decoration: none; color: var(--ink); }
+.past-event-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.past-event-heading h3 { font-family: var(--serif); font-size: 1.5rem; font-style: italic; font-weight: 500; letter-spacing: -.03em; margin: 5px 0; }
+.past-event-heading time { font-size: .76rem; color: var(--ink-soft); }
+.past-event-heading .icon { width: 20px; height: 20px; }
+.past-event-link:hover h3, .past-event-record { text-decoration: underline; text-underline-offset: 5px; }
+.past-event-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.7fr); align-content: center; gap: 16px; margin: 0; }
+.past-event-stats dt { font-size: .7rem; color: var(--ink-soft); }
+.past-event-stats dd { font-size: 1rem; margin: 6px 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.past-event-status { font-size: .85rem; color: var(--ink-soft); align-self: center; }
+.past-event-record { grid-column: 1 / -1; font-size: .76rem; color: var(--forest); }
+.past-events-note { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: .74rem; color: var(--ink-soft); }
+.payout-error { color: var(--rose-ink); }
+@media (max-width: 760px) {
+  .past-event-link { grid-template-columns: 1fr; gap: 20px; }
+  .past-event-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+  .past-event-stats dd { font-size: 1.1rem; }
+}

@@ -4,6 +4,7 @@ import { useApp } from "../context.tsx";
 import { CodeStrip } from "./CodeStrip.tsx";
 import { ContractLink } from "./common.tsx";
 import { Icon } from "./Icon.tsx";
+import { PastEvents } from "./PastEvents.tsx";
 
 export function Home() {
   const { config } = useApp();
@@ -51,6 +52,8 @@ export function Home() {
         </ol>
         <p className="money-note">If you do not qualify, your deposit is forfeited to qualifying attendees. Cancel before the cutoff for a full refund.</p>
       </section>
+
+      <PastEvents />
 
       <section id="why-bail" className="trust-section content-width" aria-labelledby="trust-title">
         <div><span className="eyebrow">Built for trust</span><h2 id="trust-title">Trust you can inspect.</h2><p>See the rules, the arbiter and the evidence before you RSVP. Your host runs the event. Your proof records your attendance.</p><ContractLink account={config.contractId} label="Explore the public contract ↗" /></div>

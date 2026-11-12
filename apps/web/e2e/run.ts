@@ -24,6 +24,8 @@ import { MINUTE, type Sandbox, USDC, startSandbox } from "@bail/testkit";
 import { KeyPair } from "near-api-js";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
 
+import { makeEvent } from "../test/fixtures.ts";
+
 const webDir = new URL("../", import.meta.url).pathname;
 const bin = process.env.NEAR_SANDBOX_BIN;
 if (!bin) throw new Error("set NEAR_SANDBOX_BIN to the near-sandbox binary");
@@ -154,6 +156,68 @@ async function main() {
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 
+    step("historical results load without a featured event or a working relayer");
+    const historyPage = await (await browser.createBrowserContext()).newPage();
+    await historyPage.setViewport(PHONE);
+    const historyErrors: string[] = [];
+    historyPage.on("pageerror", (e) => historyErrors.push(String(e)));
+    let failedHistory = false;
+    let changedHistory = false;
+    let relayerRequests = 0;
+    await historyPage.setRequestInterception(true);
+    historyPage.on("request", (request) => {
+      if (request.url().startsWith(relayerUrl)) relayerRequests++;
+      if (request.url().endsWith("/config.json")) {
+        void request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ relayerUrl, rpcUrl: sb.rpcUrl, contractId: bail.accountId, token: usdc.accountId }) });
+        return;
+      }
+      const body = request.postData();
+      if (request.url() === sb.rpcUrl + "/" && body) {
+        const rpc = JSON.parse(body);
+        if (rpc.params?.method_name === "get_event") {
+          const id = JSON.parse(Buffer.from(rpc.params.args_base64, "base64").toString()).event_id;
+          if (id === 4 || id === 5) {
+            if (failedHistory && id === 4) {
+              void request.respond({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ jsonrpc: "2.0", id: rpc.id, error: { message: "Results unavailable" } }) });
+              return;
+            }
+            // Deliberately differ from the published events to catch hard-coded metrics.
+            const attended = id === 4 ? changedHistory ? 3 : 2 : 4;
+            const forfeited = id === 4 ? 2 : 3;
+            const fixture = makeEvent({ closed: true, registered: 0, deposit: "500000", tally: {
+              stage: "Done", cursor: 0, paid_cursor: 0, attended, vouched: 0, forfeited, refunded: 0,
+              pool: "1000000", bonus: "123456", fee: "0", dust: "0", everyone_refunded: false, measured: true, new_records: 0,
+            } });
+            void request.respond({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { result: [...Buffer.from(JSON.stringify(fixture))] } }) });
+            return;
+          }
+        }
+      }
+      void request.continue();
+    });
+    await historyPage.goto(`${siteUrl}/`, { waitUntil: "domcontentloaded" });
+    await waitText(historyPage, "6 tickets qualified by codes; 5 forfeited");
+    await waitText(historyPage, "0.623456 test USDC");
+    assert.equal(await historyPage.$eval('a[href="#/event/4/organizer"]', (a) => a.getAttribute("href")), "#/event/4/organizer");
+    assert.equal(await historyPage.$eval('a[href="#/event/5/organizer"]', (a) => a.getAttribute("href")), "#/event/5/organizer");
+    for (const width of [320, 390, 1440]) {
+      await historyPage.setViewport({ width, height: 900, deviceScaleFactor: 1 });
+      await waitText(historyPage, "6 tickets qualified by codes; 5 forfeited");
+      assert.ok(await historyPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `past-event results fit ${width}px`);
+      await shot(historyPage, `00-past-events-${width}`);
+    }
+    changedHistory = true;
+    await historyPage.reload({ waitUntil: "domcontentloaded" });
+    await waitText(historyPage, "7 tickets qualified by codes; 5 forfeited");
+    failedHistory = true;
+    await historyPage.reload({ waitUntil: "domcontentloaded" });
+    await waitText(historyPage, "Results could not be read");
+    assert.doesNotMatch(await text(historyPage), /7 tickets qualified by codes/);
+    await waitText(historyPage, "0.623456 test USDC");
+    assert.equal(relayerRequests, 0, "public results need no relayer requests");
+    assert.deepEqual(historyErrors, []);
+    await historyPage.close();
+
     step("the landing page and its event finder");
     await page.goto(`${siteUrl}/`, { waitUntil: "domcontentloaded" });
     await waitText(page, "Put a little down.");
@@ -186,6 +250,16 @@ async function main() {
     const createButton = async () => page.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Create my ticket key"))!.disabled);
     assert.equal(await createButton(), true, "creating a key needs the explicit agreement");
     await page.click('input[type="checkbox"]');
+    await page.click('input[name="payout"]:not(:checked)');
+    await page.type("#account", "missing");
+    await waitText(page, "There is no NEAR account called missing.");
+    assert.equal(await createButton(), true, "a missing payout account blocks continuing");
+    await shot(page, "02-missing-payout-account");
+    await page.click("#account", { count: 3 });
+    await page.keyboard.press("Backspace");
+    await page.type("#account", organizer.accountId);
+    await page.waitForFunction(() => [...document.querySelectorAll("button")].some((b) => b.textContent?.startsWith("Create my ticket key") && !b.disabled));
+    await page.click('input[name="payout"]:not(:checked)');
     await clickText(page, "Create my ticket key");
     await waitText(page, "Save your ticket key");
     await shot(page, "03-backup");
