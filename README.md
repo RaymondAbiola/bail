@@ -4,6 +4,8 @@ Bail is deposit escrow for events, on NEAR. To RSVP you put down a small deposit
 
 Status: the contract is deployed and locked on NEAR **testnet** at [`v1.dontbail.testnet`](https://testnet.nearblocks.io/address/v1.dontbail.testnet), using Circle's test USDC. It is not deployed on mainnet, it handles no real money, and it is unaudited. Built for NEAR HACKATHON, track: Social Money.
 
+Site: [raymondabiola.github.io/bail](https://raymondabiola.github.io/bail/). It reads results and public event records straight from the chain. Joining an event needs the relayer, which runs only while an event is on.
+
 ## The problem
 
 Kickback is the best known tool of this kind. Its organizer alone decides who attended: `finalize` in `AbstractConference.sol` (line 266) takes an attendance bitmap and is `onlyAdmin`. An organizer can mark only their own sock-puppet account as present and withdraw every deposit.
