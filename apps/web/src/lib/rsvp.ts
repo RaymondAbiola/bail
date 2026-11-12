@@ -2,6 +2,7 @@ import { type BailView, type Event, type RelayerClient, type Ticket, rsvpDelegat
 
 import { tokenBalance } from "./chain.ts";
 import { describeError } from "./errors.ts";
+import { checkPayoutAccount } from "./payout-account.ts";
 
 export type RsvpStep = "checking" | "funding" | "waiting-for-funds" | "signing" | "submitting" | "confirming";
 
@@ -76,6 +77,9 @@ export async function runRsvp(
 
   onStep("checking");
   if (await view.ticket(eventId, ticket.publicKey)) return { kind: "seated" };
+
+  const payout = await checkPayoutAccount(view, payoutTo);
+  if (!payout.ok) throw new RsvpError(payout.message, true);
 
   if ((await tokenBalance(view, event.token, ticket.accountId)) < deposit) {
     onStep("funding");

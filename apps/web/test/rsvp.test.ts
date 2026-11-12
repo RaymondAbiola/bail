@@ -17,12 +17,17 @@ class FakeChain extends BailView {
   nonce: bigint | null = 7n;
   owedAmount = "0";
   onBalanceRead: () => void = () => {};
+  payoutError: Error | null = null;
 
   constructor() {
     super({ contractId: CONTRACT, rpcUrl: "http://unused" });
   }
 
   override async rpc<T>(_method: string, _params: object): Promise<T> {
+    if ((_params as { request_type?: string }).request_type === "view_account") {
+      if (this.payoutError) throw this.payoutError;
+      return { amount: "0" } as T;
+    }
     this.onBalanceRead();
     return { result: [...new TextEncoder().encode(JSON.stringify(String(this.balance)))] } as T;
   }
@@ -62,8 +67,19 @@ test("a fresh key is funded, signs its deposit and is seated", async () => {
 test("a ticket that is already seated sends nothing", async () => {
   const { view, relayer, run } = setup();
   view.seat = makeTicket();
+  view.payoutError = new Error('query: {"cause":{"name":"UNKNOWN_ACCOUNT"}}');
   assert.deepEqual(await run(), { kind: "seated" });
   assert.equal(relayer.faucetCalls + relayer.metaCalls, 0);
+});
+
+test("an invalid saved payout blocks payment before funding or a deposit can be sent", async () => {
+  for (const failure of [new Error('query: {"cause":{"name":"UNKNOWN_ACCOUNT"}}'), new TypeError("Failed to fetch")]) {
+    const { view, relayer, run } = setup();
+    view.payoutError = failure;
+    await assert.rejects(run, (error: unknown) => error instanceof RsvpError && error.safeToRetry && /account/i.test(error.message));
+    assert.equal(relayer.faucetCalls, 0);
+    assert.equal(relayer.metaCalls, 0);
+  }
 });
 
 test("an account that already holds the deposit skips the faucet", async () => {

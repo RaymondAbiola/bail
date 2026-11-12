@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { type Event, Ticket, isAccountId, isPayoutAddress } from "@bail/sdk";
 
@@ -12,6 +12,7 @@ import { KeyBackup } from "./KeyBackup.tsx";
 import { OtherChain } from "./OtherChain.tsx";
 import { Notice, TxLink, formatWhen, useAction } from "./common.tsx";
 import { requiredCodes } from "../lib/checkin-copy.ts";
+import { checkPayoutAccount, type PayoutAccountCheck } from "../lib/payout-account.ts";
 
 export const BLOCK_COPY = {
   "not-found": "This event does not exist.",
@@ -73,13 +74,32 @@ export function RsvpFlow({ eventId, event }: { eventId: number; event: Event }) 
 }
 
 function Terms({ eventId, event, onCreate }: { eventId: number; event: Event; onCreate: (t: StoredTicket) => void }) {
+  const { view } = useApp();
   const [own, setOwn] = useState(false);
   const [account, setAccount] = useState("");
   const [agree, setAgree] = useState(false);
-  const accountOk = !own || (isAccountId(account.trim()) && isPayoutAddress(`near:${account.trim()}`, { intents: false }));
+  const [checked, setChecked] = useState<{ account: string; result: PayoutAccountCheck } | null>(null);
+  const [retry, setRetry] = useState(0);
+  const name = account.trim();
+  const accountOk = !own || (isAccountId(name) && isPayoutAddress(`near:${name}`, { intents: false }));
+  const validation = checked?.account === name ? checked.result : null;
+  const payoutOk = !own || (accountOk && validation?.ok === true);
   const s = event.schedule;
 
+  useEffect(() => {
+    if (!own || !accountOk) return;
+    let active = true;
+    setChecked(null);
+    const timer = setTimeout(() => {
+      void checkPayoutAccount(view, `near:${name}`).then((result) => {
+        if (active) setChecked({ account: name, result });
+      });
+    }, 500);
+    return () => { active = false; clearTimeout(timer); };
+  }, [own, accountOk, name, retry, view]);
+
   const create = () => {
+    if (!agree || !payoutOk) return;
     const ticket = Ticket.generate();
     onCreate({
       version: 1,
@@ -127,17 +147,20 @@ function Terms({ eventId, event, onCreate }: { eventId: number; event: Event; on
             <input
               id="account" className="input" value={account} onChange={(e) => setAccount(e.target.value)}
               placeholder="yourname.testnet" autoCapitalize="none" autoCorrect="off" spellCheck={false}
-              aria-invalid={!accountOk}
+              aria-invalid={!accountOk || validation?.ok === false}
+              aria-describedby="account-validation account-hint"
             />
-            {!accountOk && <p className="hint" role="status">That is not a valid account name. Use lowercase letters, digits, dots, dashes and underscores.</p>}
-            <p className="hint">The account must be registered with test USDC to receive it, or the payout will be held as owed until it is.</p>
+            <div id="account-validation" role="status">
+              {!accountOk ? <p className="hint">That is not a valid account name. Use lowercase letters, digits, dots, dashes and underscores.</p> : !validation ? <p className="hint">Checking this account on NEAR testnet...</p> : !validation.ok ? <p className="small payout-error">{validation.message}{validation.kind === "unavailable" && <> <button type="button" className="btn quiet" onClick={() => { setChecked(null); setRetry((n) => n + 1); }}>Check again</button></>}</p> : null}
+            </div>
+            <p className="hint" id="account-hint">The account must be registered with test USDC to receive it, or the payout will be held as owed until it is.</p>
           </div>
         )}
         <label className="check">
           <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
           <span>I understand these are test tokens, the payout address is fixed, and I may forfeit the deposit.</span>
         </label>
-        <button type="button" className="btn primary block" disabled={!agree || !accountOk} onClick={create}>
+        <button type="button" className="btn primary block" disabled={!agree || !payoutOk} onClick={create}>
           Create my ticket key
         </button>
       </section>
