@@ -1,4 +1,4 @@
-import { type BailView, type Event, type TicketRecord, codeCommitment, generateCode, toBase64 } from "@bail/sdk";
+import { type BailView, type Event, type TicketRecord, codeCommitment, generateCode, phase, toBase64 } from "@bail/sdk";
 import { ResilientProvider } from "@bail/sdk/provider";
 import { Account, KeyPair, KeyPairSigner, actions, nearToYocto, teraToGas } from "near-api-js";
 import type { KeyPairString } from "near-api-js";
@@ -270,13 +270,18 @@ export async function report(view: BailView, eventId: number): Promise<string> {
   const tickets = await allTickets(view, eventId);
   const tally = event.tally;
   const counted = tally ? tally.attended + tally.vouched + tally.forfeited + tally.refunded : 0;
+  const revealed = event.slots.filter((s) => s.revealed !== null).length;
+  // Once tallied, a code that never opened or was never revealed is void and lowers what everyone needs.
+  const voided = event.checkin.slots - revealed;
   const lines = [
     `## Event ${eventId} on ${view.contractId}`,
     "",
-    `- Status: ${event.status}${event.closed ? ", closed" : ""}`,
+    `- Status: ${phase(event, Date.now())}${event.status === "Active" ? "" : ` (${event.status})`}`,
     `- Deposit: ${amount(BigInt(event.deposit))} (${event.token})`,
     event.closed ? `- RSVPs: ${counted} of ${event.capacity} seats` : `- Seats: ${event.registered} of ${event.capacity} taken`,
-    `- Codes: ${event.slots.length} of ${event.checkin.slots} opened, ${event.slots.filter((s) => s.revealed !== null).length} revealed, ${event.checkin.required} needed to count as attended`,
+    `- Codes: ${event.slots.length} of ${event.checkin.slots} opened, ${revealed} revealed, ${event.checkin.required} needed to count as attended${
+      tally && voided ? `, lowered to ${Math.max(0, event.checkin.required - voided)} because ${voided === 1 ? "1 code was" : `${voided} codes were`} void` : ""
+    }`,
   ];
   if (tally) {
     const showed = tally.attended + tally.vouched;
@@ -288,12 +293,22 @@ export async function report(view: BailView, eventId: number): Promise<string> {
     );
   }
   if (tickets.length) {
-    lines.push("", "| # | Payout address | Codes caught | Vouches | Outcome | Payout | Paid |", "|---|---|---|---|---|---|---|");
-    for (const [, ticket] of tickets) {
-      const caught = ticket.catches.filter(Boolean).length;
+    // Sent counts every code a ticket submitted; confirmed counts those that matched a revealed code.
+    const standings = await Promise.all(tickets.map(([key]) => view.standing(eventId, key)));
+    lines.push("", "| # | Payout address | Codes sent | Codes confirmed | Vouches | Outcome | Payout | Paid |", "|---|---|---|---|---|---|---|---|");
+    tickets.forEach(([, ticket], i) => {
+      const sent = ticket.catches.filter(Boolean).length;
+      const confirmed = standings[i]?.verified_catches ?? "";
       const payout = payoutFor(ticket, event);
       lines.push(
-        `| ${ticket.index + 1} | ${ticket.payout_to} | ${caught} | ${ticket.vouched_by} | ${ticket.outcome ?? "pending"} | ${payout === null ? "" : amount(payout)} | ${ticket.paid ? "yes" : "no"} |`,
+        `| ${ticket.index + 1} | ${ticket.payout_to} | ${sent} | ${confirmed} | ${ticket.vouched_by} | ${ticket.outcome ?? "pending"} | ${payout === null ? "" : amount(payout)} | ${ticket.paid ? "yes" : "no"} |`,
+      );
+    });
+    const unpaid = tally?.stage === "Done" ? tickets.filter(([, t]) => !t.paid && (payoutFor(t, event) ?? 0n) > 0n) : [];
+    if (unpaid.length) {
+      lines.push(
+        "",
+        `Not paid: ${unpaid.map(([, t]) => `#${t.index + 1}`).join(", ")}. The transfer failed, usually because the payout address doesn't exist, and the amount stays in the contract.`,
       );
     }
   } else if (event.closed) {
