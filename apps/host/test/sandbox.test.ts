@@ -88,8 +88,8 @@ test("the console runs a whole event with SDK-driven attendees, and the keeper s
     const before = await report(view, id);
     assert.match(before, /Attended 2, vouched 0, forfeited 1/);
     assert.match(before, /Show-up rate: 67%/);
-    assert.match(before, /\| 1 \| near:[0-9a-f]{64} \| 0 \| 0 \| Forfeited \| 0 \|/);
-    assert.match(before, /\| 2 \| near:[0-9a-f]{64} \| 2 \| 0 \| Attended \| 1\.5 \| yes \|/);
+    assert.match(before, /\| 1 \| near:[0-9a-f]{64} \| 0 \| 0 \| 0 \| Forfeited \| 0 \|/);
+    assert.match(before, /\| 2 \| near:[0-9a-f]{64} \| 2 \| 2 \| 0 \| Attended \| 1\.5 \| yes \|/);
     const keeper = new Keeper({ chain, view, closeDelayMs: 0, log });
     for (let i = 0; i < 5 && !(await view.event(id))!.closed; i++) await keeper.tick();
     assert.ok((await view.event(id))!.closed);
