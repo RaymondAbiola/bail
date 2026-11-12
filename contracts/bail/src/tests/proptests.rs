@@ -162,8 +162,8 @@ fn run(h: &History) -> Result<(), TestCaseError> {
     let seed = |t: usize| (t + 1) as u8;
     let mut received = 0u128;
 
-    for t in 0..usize::from(h.rsvps) {
-        let amount = DEPOSIT + u128::from(h.overpay[t]);
+    for (t, &extra) in h.overpay.iter().enumerate().take(usize::from(h.rsvps)) {
+        let amount = DEPOSIT + u128::from(extra);
         prop_assert_eq!(
             send(&mut c, USDC, NOW, amount, msg(id, seed(t), &payee(t))),
             0
