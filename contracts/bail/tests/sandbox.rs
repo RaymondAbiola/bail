@@ -598,3 +598,119 @@ async fn only_the_contract_can_initialise_itself() -> anyhow::Result<()> {
     assert!(failure.contains("Method new is private"), "{failure}");
     Ok(())
 }
+
+/// The arbiter can be a community's Sputnik DAO, with no extra code in Bail: the council
+/// votes on a FunctionCall proposal, and only when the vote passes does the DAO call
+/// `void_event` with 1 yoctoNEAR. Uses the code testnet's DAO factory deploys today.
+#[tokio::test]
+async fn a_sputnik_dao_votes_to_void_an_event() -> anyhow::Result<()> {
+    let w = World::new(None).await?;
+    let organizer = w.account("organizer").await?;
+    let stranger = w.account("stranger").await?;
+    let council = [w.account("council-a").await?, w.account("council-b").await?];
+
+    let dao = w
+        .root
+        .create_subaccount("dao")
+        .initial_balance(NearToken::from_near(10))
+        .transact()
+        .await?
+        .into_result()?;
+    let dao = dao
+        .deploy(include_bytes!("sputnik/sputnikdao2.wasm"))
+        .await?
+        .into_result()?;
+    dao.call("new")
+        .args_json(json!({
+            "config": { "name": "arbiter", "purpose": "Votes to void Bail events", "metadata": "" },
+            "policy": [council[0].id(), council[1].id()],
+        }))
+        .transact()
+        .await?
+        .into_result()?;
+
+    let (id, _) = create_event(&w, &organizer, dao.as_account(), 4).await?;
+    let names = ["alice", "bob"];
+    let mut people = Vec::new();
+    for (i, name) in names.iter().enumerate() {
+        let account = w.account(name).await?;
+        w.fund(account.id(), DEPOSIT).await?;
+        rsvp(
+            &w,
+            &account,
+            id,
+            &Ticket::new(i as u8 + 1),
+            &format!("near:{}", account.id()),
+        )
+        .await?;
+        people.push(account);
+    }
+
+    // Being on the council isn't being the arbiter: a member can't void it alone.
+    let alone = council[0]
+        .call(w.bail.id(), "void_event")
+        .args_json(json!({ "event_id": id }))
+        .deposit(ONE_YOCTO)
+        .transact()
+        .await?;
+    assert!(format!("{:?}", alone.into_result().unwrap_err()).contains("only the arbiter can void"));
+
+    let kind = json!({ "FunctionCall": {
+        "receiver_id": w.bail.id(),
+        "actions": [{
+            "method_name": "void_event",
+            "args": Base64VecU8::from(json!({ "event_id": id }).to_string().into_bytes()),
+            "deposit": "1",
+            "gas": "30000000000000",
+        }],
+    }});
+    let proposal: u64 = council[0]
+        .call(dao.id(), "add_proposal")
+        .args_json(json!({ "proposal": { "description": "Void the event", "kind": kind } }))
+        .deposit(NearToken::from_near(1))
+        .max_gas()
+        .transact()
+        .await?
+        .into_result()?
+        .json()?;
+    let vote = |member: &Account| {
+        member
+            .call(dao.id(), "act_proposal")
+            .args_json(json!({ "id": proposal, "action": "VoteApprove", "proposal": kind }))
+            .max_gas()
+            .transact()
+    };
+
+    // One of two votes isn't a majority, so nothing happens yet.
+    vote(&council[0]).await?.into_result()?;
+    let event = w.view("get_event", json!({ "event_id": id })).await?;
+    assert_eq!(event["status"], "Active");
+
+    let passed = vote(&council[1]).await?;
+    assert!(passed.is_success(), "{:?}", passed.failures());
+    let state: Value = w
+        .worker
+        .view(dao.id(), "get_proposal")
+        .args_json(json!({ "id": proposal }))
+        .await?
+        .json()?;
+    assert_eq!(state["status"], "Approved");
+    let event = w.view("get_event", json!({ "event_id": id })).await?;
+    assert_eq!(event["status"], "Voided");
+
+    // A voided event settles at once, and everyone gets their deposit back.
+    while w
+        .call(&stranger, "tally", json!({ "event_id": id, "limit": 10 }))
+        .await?
+        != json!("Done")
+    {}
+    while w
+        .call(&stranger, "payout", json!({ "event_id": id, "limit": 10 }))
+        .await?
+        != json!(true)
+    {}
+    for (person, name) in people.iter().zip(names) {
+        assert_eq!(w.balance(person.id()).await?, DEPOSIT, "{name}");
+    }
+    Ok(())
+}
