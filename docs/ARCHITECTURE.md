@@ -486,7 +486,7 @@ bail/
   scripts/                 deploy.sh, verify.py, check-events.py, render-diagrams.sh
   deployments/             testnet.json: the deployed contract, its source commit and transactions
   docs/                    ARCHITECTURE.md, ROADMAP.md, and the testnet records: testnet-rehearsal.md,
-                           dry-run.md, first-event.md, dao-arbiter-event.md
+                           dry-run.md, first-event.md, dao-arbiter-event.md, browser-hosted-event.md
     diagrams/              Mermaid sources for the four flow diagrams
     images/                rendered SVG diagrams
   .github/workflows/       continuous integration, and the site's GitHub Pages build

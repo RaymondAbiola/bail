@@ -51,6 +51,8 @@ A Trezu treasury is a Sputnik DAO, so a community's Trezu treasury can be the ar
 
 Both are on chain and can be checked with `npx bail-host report 4` and `npx bail-host report 5`.
 
+**Created and hosted in the browser (event 7, 13 Nov 2026).** An organizer connected Meteor Wallet on the site, created the event with one approval and opened each code from the host screen; the relayer revealed each code after its window closed, and the keeper paid out. Two attendees in two browsers, both the author testing it: one caught both codes and received 1.0 test USDC, the other caught one and forfeited. Record and transactions: [docs/browser-hosted-event.md](docs/browser-hosted-event.md).
+
 What the dry run changed: one attendee copied a code from the host's terminal with a space between every letter, so it didn't match and they forfeited. The host console now shows each code on a plain line, and the app warns when an entry isn't five words. We also closed a loophole after it: with 2 of 3 codes needed and codes at set times, anyone could leave after the second. The host now chooses when each code opens, and every code is needed by default.
 
 In the first event every code sent matched. One payout failed: an attendee typed `adetomiwa` as their payout address instead of `adetomiwa.testnet`, an account that doesn't exist, so the transfer was refused and the amount is still held by the contract. A ticket's payout address can't be changed after RSVP.
@@ -62,7 +64,7 @@ Each step is "run X, see Y". None needs a private key. Each row names what it ne
 | Do | See |
 |---|---|
 | `python3 scripts/verify.py` | `PASS` twice, then `v1.dontbail.testnet is locked and runs the published source`. It checks the contract has no access keys, then rebuilds the exact commit it names in a pinned Docker image and compares the code hash. Needs `git`, Docker and `cargo-near` (`cargo install --locked cargo-near --no-default-features`). About 4 minutes. |
-| `python3 scripts/check-events.py` | `ALL CHECKS PASSED` in about 10 seconds. For events 4, 5 and 6 it reads the raw chain data and recomputes, without trusting the contract's tally: each revealed code against the commitment made when it opened, each ticket's catches, the outcomes, the forfeit pool, the bonus and every payout. It compares them with the contract and with the numbers in this README, and checks event 6's Sputnik DAO vote. Needs only Python 3.10+ and the network. |
+| `python3 scripts/check-events.py` | `ALL CHECKS PASSED` in about 10 seconds. For events 4 to 7 it reads the raw chain data and recomputes, without trusting the contract's tally: each revealed code against the commitment made when it opened, each ticket's catches, the outcomes, the forfeit pool, the bonus and every payout. It compares them with the contract and with the numbers in this README, and checks event 6's Sputnik DAO vote. Needs only Python 3.10+ and the network. |
 | `cargo test -p bail --lib` | All unit and property tests pass (about 40 seconds). The property test pays out random event histories against an independent model and checks conservation to the micro-unit. CI runs it with `PROPTEST_CASES=1000`. |
 | `cargo test -p bail --test sandbox` | Five tests run the compiled contract in a local NEAR node: a whole six-person event settled by a stranger, a Sputnik DAO voting to void an event, and the access rules on the real runtime. Needs `cargo-near` as above. |
 | `cd tests/kickback && forge test -vv` | `[PASS] test_organizerTakesEveryDepositByMarkingOnlyTheirOwnAccount()`. The attack succeeds against Kickback's own contract. Needs [Foundry](https://getfoundry.sh). |
@@ -96,7 +98,7 @@ You will see the app at `http://localhost:5180/` and a stand-in host screen at `
 | `packages/testkit` | A local NEAR node with the contract deployed, shared by the integration tests |
 | `scripts` | `deploy.sh`, `verify.py`, `check-events.py` and `render-diagrams.sh` |
 | `deployments` | `testnet.json`: the deployed contract, its source commit and its transactions |
-| `docs` | [ARCHITECTURE.md](docs/ARCHITECTURE.md) (design, threat model, invariants), [ROADMAP.md](docs/ROADMAP.md), and the testnet records: [rehearsal](docs/testnet-rehearsal.md), [dry run](docs/dry-run.md), [first event](docs/first-event.md), [DAO arbiter](docs/dao-arbiter-event.md) |
+| `docs` | [ARCHITECTURE.md](docs/ARCHITECTURE.md) (design, threat model, invariants), [ROADMAP.md](docs/ROADMAP.md), and the testnet records: [rehearsal](docs/testnet-rehearsal.md), [dry run](docs/dry-run.md), [first event](docs/first-event.md), [DAO arbiter](docs/dao-arbiter-event.md), [browser-hosted event](docs/browser-hosted-event.md) |
 
 ## NEAR features used
 

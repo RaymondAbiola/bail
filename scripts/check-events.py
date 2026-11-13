@@ -38,6 +38,9 @@ PUBLISHED = {
         "attended": 6, "vouched": 0, "forfeited": 5, "refunded": 0, "bonus": 416_666},
     6: {"name": "Sputnik DAO arbiter demo, 13 Nov", "status": "Voided", "seats": 3,
         "attended": 0, "vouched": 0, "forfeited": 0, "refunded": 3, "bonus": 0},
+    7: {"name": "Created and hosted in the browser with a wallet, 13 Nov", "status": "Active", "seats": 2,
+        "organizer": "localherb3554.testnet",
+        "attended": 1, "vouched": 0, "forfeited": 1, "refunded": 0, "bonus": 500_000},
 }
 DAO = "bail-arbiter.sputnikv2.testnet"
 DAO_FACTORY = "sputnikv2.testnet"
@@ -58,18 +61,20 @@ def check(ok, message):
 def rpc(method, params):
     body = json.dumps({"jsonrpc": "2.0", "id": "check", "method": method, "params": params}).encode()
     last = None
-    for attempt in range(6):
+    # Public endpoints throttle (429, and sometimes 403) when busy, so rotate through them and
+    # back off for up to about two minutes before giving up.
+    for attempt in range(12):
         url = RPCS[attempt % len(RPCS)]
         try:
             request = urllib.request.Request(url, body, {"Content-Type": "application/json"})
             with urllib.request.urlopen(request, timeout=30) as response:
                 reply = json.load(response)
         except (urllib.error.URLError, TimeoutError) as error:
-            last = error
-            time.sleep(1 + attempt)
+            last = f"{url}: {error}"
+            time.sleep(min(2 * (attempt + 1), 15))
             continue
         return reply
-    raise SystemExit(f"Could not reach testnet RPC: {last}")
+    raise SystemExit(f"Could not reach testnet RPC after several tries ({last}). Public endpoints throttle when busy; try again in a few minutes.")
 
 
 def view(contract, method, args=None):
@@ -153,7 +158,8 @@ def check_event(event_id, config):
     event = view(CONTRACT, "get_event", {"event_id": event_id})
     tally = event["tally"]
     deposit = int(event["deposit"])
-    check(event["organizer"] == ORGANIZER and event["arbiter"] != ORGANIZER,
+    organizer = want.get("organizer", ORGANIZER)
+    check(event["organizer"] == organizer and event["arbiter"] != organizer,
           f"organizer {event['organizer']}, arbiter {event['arbiter']} (not the organizer)")
     if "note" in want:
         print(f"        {want['note']}")
