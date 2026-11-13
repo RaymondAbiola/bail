@@ -86,6 +86,8 @@ You will see the app at `http://localhost:5180/` and a stand-in host screen at `
 - **Implicit accounts.** A ticket key is also the key of a NEAR implicit account, so one backup is enough.
 - **NEP-141 `ft_transfer_call`.** Deposits arrive as a transfer with an RSVP note. The same path serves deposits from NEAR Intents.
 - **Sputnik DAO as arbiter.** An event's arbiter can be a community's DAO, with no extra code in Bail: the council votes on a FunctionCall proposal to `void_event`. On testnet, a two-member DAO voted to void event 6 and everyone was refunded ([docs/dao-arbiter-event.md](docs/dao-arbiter-event.md)); the sandbox test `a_sputnik_dao_votes_to_void_an_event` runs the same flow with the DAO code testnet's factory deploys.
+- **Trezu.** A Trezu treasury is a Sputnik DAO, so a community's Trezu treasury can be an event's arbiter without changes. That is not yet tested in Trezu's interface, whose hosted app is mainnet-only. Sending a share of each forfeit pool to the community's Trezu treasury is planned ([ARCHITECTURE.md section 16](docs/ARCHITECTURE.md#16-beyond-the-hackathon)).
+- **An attendance record per payout account.** Each settled event records every payout account's RSVPs, attended, vouched and forfeited, and `reliability(payout_to)` returns it, so every point traces to a settled event. Only events where attendance was measured count: not cancelled or voided ones. Using the record for smaller deposits is planned, not built.
 - **`ed25519_verify` host function.** The contract verifies ticket signatures itself, so attendees need no NEAR account.
 
 ## Limits
@@ -96,6 +98,15 @@ You will see the app at `http://localhost:5180/` and a stand-in host screen at `
 - The contract is unaudited and has no admin, so a bug can't be patched in place. A fix ships as a new version.
 
 The full list and the threat model are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#15-known-limitations).
+
+## How it was built
+
+Built during NEAR HACKATHON, between 1 and 14 November 2026, by one person working with AI coding agents, as the hackathon's rules allow (Q-005 in [HACKATHON.md](https://nearhackathon.com/HACKATHON.md)):
+
+- **Claude Code** (Anthropic) wrote most of the contract, the SDK, the relayer and keeper, the host console, the scripts and the documentation.
+- **Codex** (OpenAI) wrote the web app.
+
+The author directed the work and made the product decisions, such as the host choosing when each code opens and every code being needed, ran both real events, and reviewed and tested the work. Third-party code: Kickback's contract and OpenZeppelin files, copied unchanged under `tests/kickback/src` and checked against upstream hashes; the Sputnik DAO contract under `contracts/bail/tests/sputnik`, copied from testnet and checked by hash; and the open-source libraries listed in each `Cargo.toml` and `package.json`, chiefly near-sdk, near-api-js, noble and scure, and React with Vite.
 
 ## Licence
 
