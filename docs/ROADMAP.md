@@ -62,6 +62,7 @@ What is being built, in order. Each stage builds on the one before it. The desig
 - [x] Host console to create events, open each code when the host chooses, reveal them and report results
 - [x] Web app: event page, RSVP, live check-in, results and organizer view, with a check that a payout account exists before RSVP
 - [x] The site on GitHub Pages, reading results and public records straight from the chain
+- [x] Creating events and running their codes from the browser, with a NEAR wallet through near-connect
 
 ## 7. Real events (done)
 
@@ -76,4 +77,4 @@ What is being built, in order. Each stage builds on the one before it. The desig
 - [ ] Deposits from any chain and asset through 1Click, with the RSVP note delivered onchain
 - [ ] A real cross-chain RSVP and an Intents payout on mainnet, since NEAR Intents has no testnet
 
-After these: creating and hosting events from the browser with a NEAR wallet (today the organizer uses the `bail-host` console), and the ideas in [ARCHITECTURE.md section 16](ARCHITECTURE.md#16-beyond-the-hackathon): door mode for in-person events, smaller deposits for reliable people, and a share of forfeits to the community's Trezu treasury.
+After these, the ideas in [ARCHITECTURE.md section 16](ARCHITECTURE.md#16-beyond-the-hackathon): door mode for in-person events, smaller deposits for reliable people, and a share of forfeits to the community's Trezu treasury.

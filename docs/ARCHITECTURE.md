@@ -75,9 +75,9 @@ The contract holds all funds and all rules. Every off-chain part is replaceable:
 | Actor | Holds | Can | Cannot |
 |---|---|---|---|
 | Attendee | A ticket key (ed25519) generated in the browser for this event | RSVP, cancel before the cutoff, catch codes, flag a slot where no code was shown, vouch for others | Change where their money is paid once the RSVP is made |
-| Organizer | Their NEAR account | Create an event, cancel it before check-in opens, open code slots | Mark anyone present or absent, end the event early, receive forfeits |
+| Organizer | Their NEAR account, through a wallet on the site or near-cli's keychain in the console | Create an event, cancel it before check-in opens, open code slots | Mark anyone present or absent, end the event early, receive forfeits |
 | Host console | A function-call key on the organizer's account, limited to `open_slot` and `reveal` on the Bail contract | Open slots and reveal codes | Move NEAR, move tokens, call any other method |
-| Relayer | A function-call key limited to Bail's attendee methods and keeper methods | Submit actions attendees signed; run tally and payouts | Forge a signature, choose payouts, move funds |
+| Relayer | A function-call key limited to Bail's attendee methods, `reveal` and keeper methods | Submit actions attendees signed; reveal a code the host hands it after checking it against the commitment; run tally and payouts | Forge a signature, choose payouts, move funds |
 | Arbiter | An account named at creation that can't be the organizer, such as a Sputnik DAO | Void the event at any time until the dispute window ends, which refunds everyone | Send money anywhere except back to depositors |
 | Anyone | Nothing | Reveal a code they know, tally, pay out | Anything that needs a signature |
 
@@ -310,6 +310,7 @@ At NEAR's storage price (1 NEAR per 100 KB), a 30-seat event prepays about 0.3 N
 
 ### 7.2 Relayer and keeper (`apps/relayer`, Node)
 
+- `POST /v1/reveal` takes `{ event_id, slot, code }` from a host's browser after the code's window has closed, checks the code against the slot's commitment and the deadlines, and only then reveals it, so a wrong code costs no gas.
 - `POST /v1/catch`, `/v1/flag`, `/v1/cancel`, `/v1/vouch` take exactly the contract method's arguments. The relayer checks the fields, the ticket's signature (rebuilt with the SDK, as the contract will) and that the ticket exists, rate-limits per IP and per ticket, then submits with a function-call key limited to Bail's attendee and keeper methods, none of which takes attached NEAR. After a cancellation it claims the refund. Keys come from environment variables and are never logged.
 - Keys form a pool. Each sends one transaction at a time and is held only until that transaction is included, so no key reuses or skips a nonce; results are read afterwards.
 - Keeper loop: judging deadlines by block time, as the contract does, it calls `tally`, `payout` and `close_event` in pages, halving any page that runs out of gas, and waits six hours after the last payout before closing: closing frees each ticket's storage, and with it the per-ticket results attendees look up, while only refunding the organizer's storage.
@@ -329,6 +330,7 @@ A static site (Vite, React, TypeScript, plain CSS, and the browser-safe SDK). It
 - **Live check-in:** when a code opens, it takes over the screen with a countdown and one input for the five words, word-list suggestions that never take focus from the input, "sent" distinguished from "confirmed after the host reveals the code" (decided by the contract's own proof check), corrections with rising attempt numbers, and a "the host did not show a code" flag that is labelled as evidence for the arbiter.
 - **Dispute and results:** the viewer's standing, vouching, then outcome, payout and whether it was actually paid. Results are kept in the browser, because closing an event frees the onchain ticket record.
 - **Organizer view:** public and read only: headcount and per-code activity, labelled with when it was read.
+- **Host an event** (`#/host`) and the **host screen** (`#/event/N/host`): the console's create and live steps in the browser. The organizer connects a NEAR wallet through near-connect, which is loaded only on these pages. One approval creates the event with its storage deposit; the codes are generated and kept in that browser, never in a URL or request before they open. Each code opens with one wallet approval, only that live code is shown, and closed windows are revealed through the relayer's `/v1/reveal`, with a wallet fallback. The timing rules are the SDK's `hosting` module, shared with the console. No access key is added to the organizer's account.
 - **Finished events:** a visitor with no ticket sees the result instead of RSVP steps, and the landing page shows the real events and the DAO arbiter demo, all read from the chain.
 - **Payout address check:** before RSVP, the app confirms a typed NEAR account exists and suggests the `.testnet` name when it doesn't.
 - **Other chain:** a marked placeholder, "Planned for mainnet". Nothing there works yet.

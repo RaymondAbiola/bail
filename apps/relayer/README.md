@@ -8,6 +8,8 @@ The relayer pays the gas for actions attendees sign, so attendees never need NEA
 
 Before spending gas the relayer checks the fields and the ticket's signature, the same way the contract will, and that the ticket exists. It limits each IP to 60 requests a minute and each ticket to 12. After a cancellation it claims the refund for the ticket's payout address. Errors come back as `{ "error": "..." }`: 400 for a malformed or wrongly signed action, 404 for an unknown ticket, 422 with the contract's own message and the transaction when the contract refused it, 429 when rate-limited.
 
+`POST /v1/reveal` takes `{ event_id, slot, code }` from a host's browser once that code's window has closed. It checks the code against the slot's commitment, that the window has closed and that the reveal deadline hasn't passed, then reveals it. Answers `{ tx }`; 400 for a code that doesn't match, 409 if already revealed, 422 if too early or too late. Relayer keys made before `reveal` was added can't call it: make new ones with `npm run keys`.
+
 `GET /v1/health` names the contract and the relayer account.
 
 ## Testnet onboarding

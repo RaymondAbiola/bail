@@ -14,7 +14,7 @@ This repository runs Kickback's real contract, copied unchanged and checked agai
 
 ## How an event works
 
-1. **RSVP.** The organizer creates an event with a deposit, a capacity, a schedule and a named arbiter. Attendees RSVP with the deposit. Free cancellation until a cutoff.
+1. **RSVP.** The organizer creates an event with a deposit, a capacity, a schedule and a named arbiter, on the site with a NEAR wallet or with the `bail-host` console. Attendees RSVP with the deposit. Free cancellation until a cutoff.
 2. **Check-in.** On a video call the host shows live codes, each five random words, whenever the host chooses, with the last one usually kept for the end. Nobody knows in advance when a code is coming. Each code is live for a short window. Attendees type it in. The host commits to each code on chain when it opens, so it can't be changed later.
 3. **Reveal.** After a code's window, anyone who knows it can reveal it. The contract checks each attendee's catch against it. An attendee needs R of the K codes. A code the host never opens or reveals becomes void and only lowers the requirement.
 4. **Dispute.** Attendees who qualified can vouch for someone whose phone died (two vouches get the deposit back, without the bonus). If the host hides codes, attendees flag the slot and the arbiter, such as the community's Sputnik DAO, can void the event, which refunds everyone. The arbiter can't be the organizer and can't choose who attended.
@@ -91,8 +91,8 @@ You will see the app at `http://localhost:5180/` and a stand-in host screen at `
 | `tests/kickback` | Foundry project: Kickback's contract and the attack on it |
 | `packages/sdk` | Browser-safe TypeScript: ticket keys, codes, hashes, signed actions, RSVP notes, typed reads. Verified byte for byte against the contract |
 | `apps/relayer` | Relayer (pays attendees' gas, checks every action first), testnet faucet and sponsored deposits, and the keeper that settles events |
-| `apps/host` | `bail-host`: the organizer's console for creating events, running live codes, and reporting |
-| `apps/web` | The web app for attendees and the public site, with each event's results. See [apps/web/README.md](apps/web/README.md) |
+| `apps/host` | `bail-host`: the organizer's terminal console for creating events, running live codes, and reporting. The site does the same in the browser with a NEAR wallet |
+| `apps/web` | The web app: attendees RSVP and check in with no wallet, organizers create and host events with one, and every event's results are public. See [apps/web/README.md](apps/web/README.md) |
 | `packages/testkit` | A local NEAR node with the contract deployed, shared by the integration tests |
 | `scripts` | `deploy.sh`, `verify.py`, `check-events.py` and `render-diagrams.sh` |
 | `deployments` | `testnet.json`: the deployed contract, its source commit and its transactions |
