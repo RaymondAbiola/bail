@@ -22,7 +22,7 @@ import { relayerServer } from "@bail/relayer/src/server.ts";
 import { BailView, RelayerClient, Ticket, codeCommitment, rsvpDelegate, toBase64 } from "@bail/sdk";
 import { MINUTE, type Sandbox, USDC, startSandbox } from "@bail/testkit";
 import { KeyPair } from "near-api-js";
-import puppeteer, { type Browser, type Page } from "puppeteer-core";
+import puppeteer, { type Browser, type HTTPRequest, type Page } from "puppeteer-core";
 
 import { makeEvent } from "../test/fixtures.ts";
 
@@ -293,10 +293,38 @@ async function main() {
     await page.type("#account", organizer.accountId);
     await page.waitForFunction(() => [...document.querySelectorAll("button")].some((b) => b.textContent?.startsWith("Create my ticket key") && !b.disabled));
     await page.click('input[name="payout"]:not(:checked)');
+
+    step("creating a key keeps the backup screen visible while old and new chain reads overlap");
+    const eventBeforeKey = (await view.event(0))!;
+    const isEventRead = (request: HTTPRequest) => {
+      if (request.url() !== sb.rpcUrl + "/" || !request.postData()) return false;
+      const rpc = JSON.parse(request.postData()!);
+      return rpc.params?.method_name === "get_event" && JSON.parse(Buffer.from(rpc.params.args_base64, "base64").toString()).event_id === 0;
+    };
+    const heldReads: HTTPRequest[] = [];
+    const holdEventReads = (request: HTTPRequest) => {
+      if (isEventRead(request)) heldReads.push(request);
+      else void request.continue();
+    };
+    await page.setRequestInterception(true);
+    page.on("request", holdEventReads);
+    const oldRead = page.waitForRequest(isEventRead);
+    await nudge(page);
+    await oldRead;
+    const loadingWatch = await page.evaluateHandle(() => {
+      const state = { appeared: false };
+      const observer = new MutationObserver(() => { state.appeared ||= !!document.querySelector('[aria-label="Loading the event"]'); });
+      observer.observe(document.body, { childList: true, subtree: true });
+      return { state, observer };
+    });
+    // This must start before the old request finishes, without waiting for the 6-second poll.
+    const keyRead = page.waitForRequest(isEventRead, { timeout: 3000 });
     await clickText(page, "Create my ticket key");
+    await keyRead;
     await waitText(page, "Save your ticket key");
     await shot(page, "03-backup");
-    // Saving the ticket makes the page re-read the chain, so wait for the button rather than assume it.
+    assert.equal(await loadingWatch.evaluate(({ state }) => state.appeared), false, "a dependency reload never replaces the page with a skeleton");
+    const backupHeading = (await page.$("#backup-title"))!;
     const continueDisabled = async () => {
       await page.waitForFunction(() => [...document.querySelectorAll("button")].some((b) => b.textContent?.startsWith("Continue to payment")), { timeout: 60_000 });
       return page.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Continue to payment"))!.disabled);
@@ -307,6 +335,28 @@ async function main() {
     const backup = await page.$eval('[data-testid="ticket-key"]', (el) => el.textContent ?? "");
     const alice = Ticket.restore(backup);
     await page.click('input[type="checkbox"]');
+
+    const respondToRead = (request: HTTPRequest, result: object) => request.respond({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ jsonrpc: "2.0", id: "get_event", result: { result: [...Buffer.from(JSON.stringify(result))] } }) });
+    const afterPaint = () => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const oldReadFinished = page.waitForResponse((response) => response.request() === heldReads[0]);
+    await respondToRead(heldReads[0]!, { ...eventBeforeKey, arbiter: "stale-poll.testnet" });
+    await (await oldReadFinished).text();
+    await afterPaint();
+    assert.doesNotMatch(await page.$eval(".event-page", (el) => el.textContent!), /stale-poll\.testnet/, "the old read cannot overwrite data for the new ticket key");
+    await nudge(page);
+    await afterPaint();
+    assert.equal(heldReads.length, 2, "finishing the old read must not unlock the new read");
+    const ticketRead = page.waitForResponse((response) => JSON.parse(response.request().postData() ?? "{}").params?.method_name === "get_ticket");
+    await respondToRead(heldReads[1]!, eventBeforeKey);
+    await (await ticketRead).text();
+    await afterPaint();
+    assert.equal(await backupHeading.evaluate((heading) => heading.isConnected), true, "the backup stays mounted when the reload completes");
+    assert.equal(await continueDisabled(), false, "the saved-key acknowledgement survives the reload");
+    assert.equal(await loadingWatch.evaluate(({ state, observer }) => { observer.disconnect(); return state.appeared; }), false);
+    await loadingWatch.dispose();
+    await backupHeading.dispose();
+    page.off("request", holdEventReads);
+    await page.setRequestInterception(false);
     await clickText(page, "Continue to payment");
     await waitText(page, "Pay your deposit");
     await shot(page, "04-pay");

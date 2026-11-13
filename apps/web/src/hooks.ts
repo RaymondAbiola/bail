@@ -44,33 +44,36 @@ export interface Polled<T> {
 }
 
 /**
- * Reads on a timer, but never faster than every 5 seconds, never twice at once, and not at
- * all while the page is hidden. A failed read keeps the last good data so the screen doesn't
- * go blank, and `error` says it is stale.
+ * Reads on a timer, but never faster than every 5 seconds and not while the page is hidden.
+ * Reads for the same deps never overlap. New deps start a fresh read and ignore the old one.
+ * Reloads keep the last good data so the screen doesn't go blank; `error` says it is stale.
  */
 export function usePoll<T>(read: () => Promise<T>, everyMs: number, deps: unknown[]): Polled<T> {
   const [state, setState] = useState<{ data: T | null; error: string | null; updatedAt: number | null; loading: boolean }>({
     data: null, error: null, updatedAt: null, loading: true,
   });
-  const reading = useRef(false);
+  const active = useRef<{ reading: boolean } | null>(null);
   const readRef = useRef(read);
   readRef.current = read;
 
   const refresh = useCallback(async () => {
-    if (reading.current) return;
-    reading.current = true;
+    const scope = active.current;
+    if (!scope || scope.reading) return;
+    scope.reading = true;
     try {
       const data = await readRef.current();
-      setState({ data, error: null, updatedAt: Date.now(), loading: false });
+      if (active.current === scope) setState({ data, error: null, updatedAt: Date.now(), loading: false });
     } catch (error) {
-      setState((s) => ({ ...s, error: error instanceof Error ? error.message : String(error), loading: false }));
+      if (active.current === scope) setState((s) => ({ ...s, error: error instanceof Error ? error.message : String(error), loading: false }));
     } finally {
-      reading.current = false;
+      scope.reading = false;
     }
   }, []);
 
   useEffect(() => {
-    setState({ data: null, error: null, updatedAt: null, loading: true });
+    const scope = { reading: false };
+    active.current = scope;
+    setState((s) => ({ ...s, error: null, loading: true }));
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
     const tick = async () => {
@@ -84,6 +87,7 @@ export function usePoll<T>(read: () => Promise<T>, everyMs: number, deps: unknow
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       stopped = true;
+      active.current = null;
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
