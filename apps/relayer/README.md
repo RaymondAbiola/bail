@@ -56,6 +56,10 @@ It needs `apps/relayer/.env` from the steps above and a working `cloudflared` (s
 
 Quick tunnels are free and need no setup, but they have no uptime guarantee and their addresses change every time they start. If a tunnel restarts the new address is printed, and attendees must reload. For a longer-lived deployment, run the relayer on an always-on server and serve `apps/web/dist` from any static host (see [apps/web/README.md](../web/README.md)).
 
+## The public relayer
+
+The site's relayer, https://bail-relayer.onrender.com, runs on Render's free plan with the settings in `render.yaml` at the repository root. The two secrets, `RELAYER_KEYS` and `SPONSOR_KEY`, are entered in Render's dashboard and are never in the repository. `ALLOW_ORIGIN` is the site's address, so browsers elsewhere can't use it. The free plan sleeps after 15 idle minutes and the keeper only settles events while it is awake, so an uptime monitor checks `/v1/health` every 5 minutes, with `.github/workflows/relayer-awake.yml` as a backup; `/v1/health` answers both GET and HEAD for that reason. The site reads the address from the `RELAYER_URL` repository variable when it is built.
+
 ## Tests
 
 ```bash

@@ -4,7 +4,7 @@ Bail is deposit escrow for events, on NEAR. To RSVP you put down a small deposit
 
 Status: the contract is deployed and locked on NEAR **testnet** at [`v1.dontbail.testnet`](https://testnet.nearblocks.io/address/v1.dontbail.testnet), using Circle's test USDC. It is not deployed on mainnet, it handles no real money, and it is unaudited. Built for NEAR HACKATHON, track: Social Money.
 
-Site: [raymondabiola.github.io/bail](https://raymondabiola.github.io/bail/). It reads results and public event records straight from the chain. Joining an event needs the relayer, which runs only while an event is on.
+Site: [raymondabiola.github.io/bail](https://raymondabiola.github.io/bail/). Anyone can create an event there with a NEAR testnet wallet, join one with no wallet, and see every result, without a terminal: the relayer is hosted, and results are read straight from the chain. [Try it on the site](#try-it-on-the-site) has the steps.
 
 ## The problem
 
@@ -57,6 +57,23 @@ What the dry run changed: one attendee copied a code from the host's terminal wi
 
 In the first event every code sent matched. One payout failed: an attendee typed `adetomiwa` as their payout address instead of `adetomiwa.testnet`, an account that doesn't exist, so the transfer was refused and the amount is still held by the contract. A ticket's payout address can't be changed after RSVP.
 
+## Try it on the site
+
+About 25 minutes, all in the browser, on testnet. You play the organizer and one attendee.
+
+| Do | See |
+|---|---|
+| Install [Meteor Wallet](https://meteorwallet.app), create a **testnet** account, and give it about 0.2 test NEAR from a testnet faucet such as [near-faucet.io](https://near-faucet.io) | The account in Meteor, with a balance |
+| Open [the Host an event page](https://raymondabiola.github.io/bail/#/host) and connect Meteor | "Relayer is reachable", and the form. If the relayer was idle it can take up to a minute to answer |
+| Fill in: check-in starts in 10 minutes, lasts 10, 2 codes, each live for 3, deposit 0.5, 5 seats, arbiter `bail-arbiter.sputnikv2.testnet` (or any existing account that isn't yours). Create, and approve once in Meteor | The event number, the attendee link, and the storage cost (0.07 NEAR for 5 seats, mostly returned when the event closes) |
+| In a private window, open the attendee link and RSVP | Terms, a ticket key to save, then "You're in". The relayer's faucet paid the 0.5 test USDC deposit; you need no wallet here |
+| When check-in opens, on the host screen press "Open code 1" and approve | The five-word code, large, with a countdown. Only the live code is ever shown |
+| Type it in the attendee window and send | "Sent", then "Confirmed" after the host screen reveals it through the relayer when the window closes, with no wallet popup |
+| Do the same for code 2 when the host screen allows it | Both codes revealed |
+| Wait about 5 minutes after check-in ends | The attendee window shows "You attended" and 0.5 test USDC paid back. The event's public record shows the tally |
+
+Skip a code in the attendee window, or RSVP from a second private browser that misses one, to see a forfeit pay the other attendee a bonus.
+
 ## Verify it
 
 Each step is "run X, see Y". None needs a private key. Each row names what it needs besides Rust stable and Node 24.
@@ -92,7 +109,7 @@ You will see the app at `http://localhost:5180/` and a stand-in host screen at `
 | `contracts/test-token` | A standard NEP-141 token used only by the local tests |
 | `tests/kickback` | Foundry project: Kickback's contract and the attack on it |
 | `packages/sdk` | Browser-safe TypeScript: ticket keys, codes, hashes, signed actions, RSVP notes, typed reads. Verified byte for byte against the contract |
-| `apps/relayer` | Relayer (pays attendees' gas, checks every action first), testnet faucet and sponsored deposits, and the keeper that settles events |
+| `apps/relayer` | Relayer (pays attendees' gas, checks every action first), testnet faucet and sponsored deposits, and the keeper that settles events. Hosted on Render from `render.yaml` |
 | `apps/host` | `bail-host`: the organizer's terminal console for creating events, running live codes, and reporting. The site does the same in the browser with a NEAR wallet |
 | `apps/web` | The web app: attendees RSVP and check in with no wallet, organizers create and host events with one, and every event's results are public. See [apps/web/README.md](apps/web/README.md) |
 | `packages/testkit` | A local NEAR node with the contract deployed, shared by the integration tests |
@@ -118,6 +135,7 @@ You will see the app at `http://localhost:5180/` and a stand-in host screen at `
 - Online presence is not attention: Bail proves someone was in the session at several separate moments, not that they listened. A friend can relay a code to someone absent. Short windows, a multi-code requirement and small deposits make that unattractive, not impossible.
 - Against a host who hides the codes from everyone but their own tickets, the defence is the arbiter, and the contract can't prove the arbiter is independent.
 - The contract is unaudited and has no admin, so a bug can't be patched in place. A fix ships as a new version.
+- The public relayer runs on a free host that sleeps when idle; an uptime monitor keeps it awake, but a first request can take up to a minute. Anyone can run their own relayer, and attendees can also call the contract directly.
 
 The full list and the threat model are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#15-known-limitations).
 
