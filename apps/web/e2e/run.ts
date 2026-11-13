@@ -296,7 +296,11 @@ async function main() {
     await clickText(page, "Create my ticket key");
     await waitText(page, "Save your ticket key");
     await shot(page, "03-backup");
-    const continueDisabled = () => page.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Continue to payment"))!.disabled);
+    // Saving the ticket makes the page re-read the chain, so wait for the button rather than assume it.
+    const continueDisabled = async () => {
+      await page.waitForFunction(() => [...document.querySelectorAll("button")].some((b) => b.textContent?.startsWith("Continue to payment")), { timeout: 60_000 });
+      return page.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Continue to payment"))!.disabled);
+    };
     assert.equal(await continueDisabled(), true, "continuing needs the explicit acknowledgement");
     assert.doesNotMatch(await text(page), /ed25519:[1-9A-HJ-NP-Za-km-z]{40,}/, "the key is hidden until asked for");
     await clickText(page, "Show key");
