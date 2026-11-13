@@ -186,7 +186,7 @@ function Evidence({ id, event, now, updatedAt }: { id: number; event: Event; now
   return (
     <section className="evidence-panel" aria-labelledby="evidence-title">
       <p className="eyebrow">The public record</p>
-      <h2 id="evidence-title">Your attendance.<br />Your proof.</h2>
+      <h2 id="evidence-title">Your attendance. <br />Your proof.</h2>
       <dl className="evidence-ledger">
         <div><dt>Deposit</dt><dd>{formatUsdc(event.deposit)}</dd></div>
         <div><dt>Qualify by codes</dt><dd>Deposit back + share of forfeits</dd></div>

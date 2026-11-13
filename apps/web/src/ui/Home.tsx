@@ -24,7 +24,7 @@ export function Home() {
       <section className="hero content-width" aria-labelledby="home-title">
         <div className="hero-copy">
           <p className="eyebrow">For people who show up</p>
-          <h1 id="home-title">Put a little down.<br /><em>Show up.</em><br />Get it back.</h1>
+          <h1 id="home-title">Put a little down. <br /><em>Show up.</em> <br />Get it back.</h1>
           <p className="hero-description">A refundable deposit for your RSVP. Prove you were there with live codes. Get your deposit back, plus a share of no-shows’ deposits.</p>
           <div className="hero-actions">
             <button type="button" className="btn primary" onClick={findEvent}>Find your event <Icon name="arrow" /></button>
@@ -56,7 +56,7 @@ export function Home() {
       </section>
 
       <section className="organizer-section content-width" aria-labelledby="organizer-title">
-        <div className="section-heading"><p className="eyebrow">For organizers / In your browser</p><h2 id="organizer-title">Bring the people.<br />Bail keeps the commitment.</h2></div>
+        <div className="section-heading"><p className="eyebrow">For organizers / In your browser</p><h2 id="organizer-title">Bring the people. <br />Bail keeps the commitment.</h2></div>
         <ol className="landing-steps">
           <li><span className="step-number">01</span><div><Icon name="ticket" /><h3>Connect and create</h3><p>Connect a NEAR testnet wallet. Set the rules, name an independent arbiter, and share your event link.</p></div></li>
           <li><span className="step-number">02</span><div><Icon name="calendar" /><h3>Run your call</h3><p>Open each code when you choose, with one wallet approval. Keep the host screen open for reveals.</p></div></li>
@@ -101,7 +101,7 @@ function DemoTicket() {
       <div className="demo-ticket" aria-label="Illustrative live ticket preview. This is not a real event.">
         <div className="ticket-topline"><span>Your live ticket</span><span>Event #42</span></div>
         <p className="demo-label">Illustrative demo</p>
-        <h2>An evening<br />of building.</h2>
+        <h2>An evening <br />of building.</h2>
         <div className="live-banner"><span className="live-dot" /><span>Code 2 of 3 is live</span><span className="demo-time">01:34 left</span></div>
         <div className="demo-entry"><p>tiger maple seven ocean lamp</p><button type="button" className="btn primary" onClick={() => setSent(!sent)} aria-pressed={sent}>{sent ? "Try again" : "Send code"}{!sent && <Icon name="arrow" />}</button></div>
         <p className="demo-feedback" role="status">{sent ? "Demo sent. A real catch is confirmed after reveal." : "Five words. One moment. Your proof."}</p>

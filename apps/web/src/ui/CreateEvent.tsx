@@ -119,7 +119,7 @@ export function CreateEvent({ walletState, store }: { walletState: HostWalletSta
   const numberField = (key: keyof HostFields, label: string, min: number, max?: number) => <div className="field" key={key}><label htmlFor={`host-${key}`}>{label}</label><input id={`host-${key}`} className="input" type="number" min={min} max={max} step="1" required value={fields[key]} onChange={(e) => set(key, e.target.value)} /></div>;
 
   return <div className="page host-page">
-    <header className="host-heading"><p className="eyebrow">For the people bringing people together</p><h1>Make showing up<br /><em>mean something.</em></h1><p>Set the commitment. Share the invitation. Run the codes when your call is ready.</p></header>
+    <header className="host-heading"><p className="eyebrow">For the people bringing people together</p><h1>Make showing up <br /><em>mean something.</em></h1><p>Set the commitment. Share the invitation. Run the codes when your call is ready.</p></header>
     <HostWallet state={walletState} />
     {pending ? <section className="card" aria-labelledby="pending-host-title"><h2 id="pending-host-title">Check your event creation</h2><p>A wallet approval was started for {pending.organizer}. Find that event before sending another creation transaction.</p>
       {organizer !== pending.organizer && <Notice tone="wait">Connect {pending.organizer} to recover this event.</Notice>}

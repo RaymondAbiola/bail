@@ -81,7 +81,7 @@ export function RelayerHealth() {
   const waiting = checking || health.loading;
   return <div className="host-health">
     <Notice tone={waiting ? "info" : health.error ? "wait" : "good"} title={waiting ? "Checking the relayer..." : health.error ? "Relayer unavailable" : "Relayer is reachable"}>
-      <p>{waiting ? "If it was asleep, this can take up to a minute." : health.error ? "Attendees cannot RSVP or send codes through this relayer right now. Keep it running during the event." : "Attendees need the relayer to RSVP and send codes. Keep it running during the event."}</p>
+      <p>{waiting ? "If it was asleep, this can take up to a minute." : health.error ? "Attendees can't RSVP or send codes right now. Try again in a minute." : "Attendees use the relayer to RSVP and send codes."}</p>
     </Notice>
     {health.error && <button type="button" className="btn quiet" disabled={waiting} onClick={() => void health.refresh()}>Check relayer again</button>}
   </div>;
