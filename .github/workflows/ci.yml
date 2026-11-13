@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# A newer push to the same branch makes an older run's result moot.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   contract:
     name: Contract
@@ -13,7 +18,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
@@ -29,9 +33,28 @@ jobs:
         env:
           PROPTEST_CASES: "1000"
 
-      # Without Ledger support, which would need the libudev system library.
+  compiled:
+    name: Compiled contract and apps on a local node
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The release binary, checked against the hash cargo-near publishes, instead of a
+      # ten-minute build from source.
       - name: Install cargo-near
-        run: cargo install --locked cargo-near --no-default-features
+        run: |
+          base=https://github.com/near/cargo-near/releases/download/cargo-near-v0.22.0
+          curl -sSLf -o /tmp/cargo-near.tar.gz "$base/cargo-near-x86_64-unknown-linux-gnu.tar.gz"
+          echo "9429064e30a427e96523f539cb255f3688d2345e5000d7d4e4873a8247247d1a  /tmp/cargo-near.tar.gz" | sha256sum -c
+          tar xzf /tmp/cargo-near.tar.gz -C /tmp
+          install /tmp/cargo-near-x86_64-unknown-linux-gnu/cargo-near ~/.cargo/bin/
+          cargo near --version
 
       - name: Sandbox tests on the compiled contract (cargo-near compiles it)
         run: cargo test -p bail --test sandbox
