@@ -2,7 +2,7 @@
 
 Bail is deposit escrow for events, on NEAR. To RSVP you put down a small deposit. If you attend, you get it back plus an equal share of the deposits forfeited by people who did not. Attendance is proved by the attendees themselves with live codes, and nobody, including the organizer, can write the attendance list. If the host cheats, the event's arbiter can void the event and refund everyone, and that arbiter can be the community's own Sputnik DAO, acting by council vote.
 
-Status: the contract is deployed and locked on NEAR **testnet** at [`v1.dontbail.testnet`](https://testnet.nearblocks.io/address/v1.dontbail.testnet), using Circle's test USDC. It is not deployed on mainnet, it handles no real money, and it is unaudited. Built for NEAR HACKATHON, track: Social Money.
+Status: the contract is deployed and locked on NEAR **testnet** at [`v1.dontbail.testnet`](https://testnet.nearblocks.io/address/v1.dontbail.testnet), using Circle's test USDC. It is not deployed on mainnet, it handles no real money, and it is unaudited. Built for NEAR HACKATHON, tracks: Social Money (a community pools deposits, and its Sputnik DAO can be the arbiter) and Real-World Money (USDC deposits for real events, with no gas for attendees through meta transactions).
 
 Site: [raymondabiola.github.io/bail](https://raymondabiola.github.io/bail/). Anyone can create an event there with a NEAR testnet wallet, join one with no wallet, and see every result, without a terminal: the relayer is hosted, and results are read straight from the chain. [Try it on the site](#try-it-on-the-site) has the steps.
 
@@ -61,20 +61,21 @@ In the first event every code sent matched. One payout failed: an attendee typed
 
 ## Try it on the site
 
-About 25 minutes, all in the browser, on testnet. You play the organizer and one attendee.
+About 25 minutes, all in the browser, on testnet. You play the organizer and two attendees: Ana, who catches every code, and Ben, who misses one. Use three browser windows that don't share storage: your normal Chrome for the organizer, a Chrome private window for Ana, and Firefox or a Chrome Guest window for Ben (private windows share storage with each other, so two of them would be the same attendee). One of the attendees can be a phone instead.
 
 | Do | See |
 |---|---|
 | Install [Meteor Wallet](https://meteorwallet.app), create a **testnet** account, and give it about 0.2 test NEAR from a testnet faucet such as [near-faucet.io](https://near-faucet.io) | The account in Meteor, with a balance |
-| Open [the Host an event page](https://raymondabiola.github.io/bail/#/host) and connect Meteor | "Relayer is reachable", and the form. If the relayer was idle it can take up to a minute to answer |
-| Fill in: check-in starts in 10 minutes, lasts 10, 2 codes, each live for 3, deposit 0.5, 5 seats, arbiter `bail-arbiter.sputnikv2.testnet` (or any existing account that isn't yours). Create, and approve once in Meteor | The event number, the attendee link, and the storage cost (0.07 NEAR for 5 seats, mostly returned when the event closes) |
-| In a private window, open the attendee link and RSVP | Terms, a ticket key to save, then "You're in". The relayer's faucet paid the 0.5 test USDC deposit; you need no wallet here |
-| When check-in opens, on the host screen press "Open code 1" and approve | The five-word code, large, with a countdown. Only the live code is ever shown |
-| Type it in the attendee window and send | "Sent", then "Confirmed" after the host screen reveals it through the relayer when the window closes, with no wallet popup |
-| Do the same for code 2 when the host screen allows it | Both codes revealed |
-| Wait about 5 minutes after check-in ends | The attendee window shows "You attended" and 0.5 test USDC paid back. The event's public record shows the tally |
+| **Organizer:** open [the Host an event page](https://raymondabiola.github.io/bail/#/host) and connect Meteor | "Relayer is reachable", and the form. If the relayer was idle it can take up to a minute to answer |
+| **Organizer:** fill in check-in starts in 10 minutes, lasts 10, 2 codes, each live for 3, deposit 0.5, 5 seats, arbiter `bail-arbiter.sputnikv2.testnet` (or any existing account that isn't yours). Create, and approve once in Meteor | The event number, the attendee link, and the storage cost (0.07 NEAR for 5 seats, mostly returned when the event closes) |
+| **Ana:** open the attendee link and RSVP | Terms, a ticket key to save, then "You're in". The relayer's faucet paid her 0.5 test USDC deposit; she needs no wallet |
+| **Ben:** open the same link in his own window and RSVP | "You're in" for Ben too. The event shows 2 of 5 seats taken |
+| **Organizer:** when check-in opens, press "Open code 1" on the host screen and approve | The five-word code, large, with a countdown. Only the live code is ever shown |
+| **Ana and Ben:** each type code 1 and send | "Sent" in both windows, then "Confirmed" once the host screen reveals the code through the relayer after the window closes, with no wallet popup |
+| **Organizer:** open code 2 when the host screen allows it. **Only Ana** types it; Ben skips it | Code 2 confirmed for Ana. Ben's window marks code 2 "Not sent" |
+| Wait about 5 minutes after check-in ends | Ana: "You attended", paid **1.0** test USDC, her 0.5 back plus Ben's forfeited 0.5. Ben: "You did not qualify", 0. The event's public record shows 1 attended and 1 forfeited |
 
-Skip a code in the attendee window, or RSVP from a second private browser that misses one, to see a forfeit pay the other attendee a bonus.
+With more attendees, the forfeits are shared equally among everyone who caught every code. Event 7 ran exactly this flow; its record is in [docs/browser-hosted-event.md](docs/browser-hosted-event.md).
 
 ## Verify it
 
