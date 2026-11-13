@@ -17,6 +17,8 @@ export interface AppConfig {
   defaultEventId: number | null;
   /** Titles, descriptions and call links the deployer vouches for. The contract stores none. */
   events: Record<string, EventMeta>;
+  /** Sandbox browser tests only. The adapter also requires a loopback hostname. */
+  testWallet: boolean;
 }
 
 export class ConfigError extends Error {}
@@ -52,6 +54,7 @@ export function parseConfig(raw: unknown): AppConfig {
     explorerUrl: typeof explorer === "string" && explorer ? httpUrl(explorer, "explorerUrl") : null,
     defaultEventId: typeof event === "number" && Number.isInteger(event) && event >= 0 ? event : null,
     events,
+    testWallet: c.testWallet === true,
   };
 }
 

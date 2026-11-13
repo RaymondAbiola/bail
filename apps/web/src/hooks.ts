@@ -7,12 +7,15 @@ import type { StoredTicket } from "./lib/storage.ts";
 
 export type Route =
   | { page: "home" }
-  | { page: "event"; id: number; view: "main" | "rsvp" | "restore" | "organizer" };
+  | { page: "host" }
+  | { page: "event"; id: number; view: "main" | "rsvp" | "restore" | "organizer" | "host" };
 
 export function parseRoute(hash: string): Route {
-  const match = hash.replace(/^#\/?/, "").match(/^event\/(\d+)(?:\/(rsvp|restore|organizer))?\/?$/);
+  const path = hash.replace(/^#\/?/, "");
+  if (/^host\/?$/.test(path)) return { page: "host" };
+  const match = path.match(/^event\/(\d+)(?:\/(rsvp|restore|organizer|host))?\/?$/);
   if (!match) return { page: "home" };
-  return { page: "event", id: Number(match[1]), view: (match[2] as "rsvp" | "restore" | "organizer" | undefined) ?? "main" };
+  return { page: "event", id: Number(match[1]), view: (match[2] as "rsvp" | "restore" | "organizer" | "host" | undefined) ?? "main" };
 }
 
 export function routeHref(id: number, view: "main" | "rsvp" | "restore" | "organizer" = "main"): string {

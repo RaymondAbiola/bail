@@ -424,7 +424,40 @@ th { font-size: .75rem; color: var(--ink-soft); font-weight: 500; }
 .dao-demo-stats dd { margin: 6px 0 0; font-size: 1rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .dao-demo-arbiter { grid-column: 1 / -1; }
 .dao-demo-retry { margin-block: 20px; }
+.host-page { max-width: 940px; margin-inline: auto; display: flex; flex-direction: column; gap: 28px; }
+.host-heading { padding-block: 8px 14px; }
+.host-heading h1 { margin-block: 18px; }
+.host-heading h1 em { color: var(--forest); font-weight: 500; }
+.host-heading > p:last-child { max-width: 540px; color: var(--ink-soft); line-height: 1.65; }
+.host-wallet { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; }
+.host-wallet > div { flex: 1; min-width: 0; }
+.host-account { overflow-wrap: anywhere; font-weight: 600; margin-block: 8px; }
+.host-wallet > p { flex-basis: 100%; }
+.host-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
+.host-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.host-form-grid > .field { min-width: 0; }
+.host-form .input { min-width: 0; max-width: 100%; }
+.host-wide { grid-column: 1 / -1; }
+.host-form fieldset:disabled .input { opacity: .65; }
+.host-advanced { margin: 0; padding: 18px 24px; }
+.host-advanced > div { padding-top: 24px; }
+.host-create-total { background: var(--mint); }
+.host-success { width: 100%; }
+.host-showing-code { border-color: var(--forest); background: #fffefa; }
+.host-live-code { font-family: var(--serif); font-size: clamp(1.7rem, 4vw, 3rem); line-height: 1.4; font-weight: 500; margin-block: 24px; }
+.host-live-actions { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; justify-content: space-between; }
+.host-timing { border-left: 2px solid var(--forest); padding-left: 16px; }
+.host-code-status { list-style: none; padding: 0; margin: 8px 0 0; }
+.host-code-status li { border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-block: 16px; font-size: .85rem; }
+.host-code-status li strong { font-weight: 500; }
+.host-code-status li .actions { flex-basis: 100%; }
+.host-health { display: flex; flex-direction: column; gap: 12px; }
+.host-links { align-items: flex-start; }
+.footer-links { flex-wrap: wrap; }
 @media (max-width: 760px) {
+  .host-form-grid { grid-template-columns: 1fr; }
+  .host-wallet { align-items: flex-start; flex-direction: column; }
+  .host-wallet > p { flex-basis: auto; }
   .dao-demo { grid-template-columns: 1fr; gap: 26px; }
   .dao-demo-result { padding: 20px; }
   .past-event-link { grid-template-columns: 1fr; gap: 20px; }

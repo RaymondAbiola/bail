@@ -21,10 +21,13 @@ import { Sponsor } from "@bail/relayer/src/onboarding.ts";
 import { relayerServer } from "@bail/relayer/src/server.ts";
 import { BailView, RelayerClient, Ticket, codeCommitment, rsvpDelegate, toBase64 } from "@bail/sdk";
 import { MINUTE, type Sandbox, USDC, startSandbox } from "@bail/testkit";
-import { KeyPair } from "near-api-js";
+import { KeyPair, actions } from "near-api-js";
 import puppeteer, { type Browser, type HTTPRequest, type Page } from "puppeteer-core";
 
 import { makeEvent } from "../test/fixtures.ts";
+import { localDateTime } from "../src/lib/host-plan.ts";
+import { HostStore } from "../src/lib/host-record.ts";
+import type { HostTransaction } from "../src/lib/organizer-wallet.ts";
 
 const webDir = new URL("../", import.meta.url).pathname;
 const bin = process.env.NEAR_SANDBOX_BIN;
@@ -54,11 +57,19 @@ async function shot(page: Page, name: string) {
 
 const text = (page: Page) => page.evaluate(() => document.body.innerText);
 
+const failureText = (page: Page) => page.evaluate(() => {
+  let message = document.body.innerText;
+  for (const element of document.querySelectorAll('[data-testid="host-live-code"], [data-testid="ticket-key"]')) {
+    if (element.textContent) message = message.replaceAll(element.textContent, "[private value hidden]");
+  }
+  return message.slice(0, 1500);
+});
+
 async function waitText(page: Page, expected: string, timeout = 60_000) {
   try {
     await page.waitForFunction((t) => document.body.innerText.toLowerCase().includes(t.toLowerCase()), { timeout }, expected);
   } catch {
-    throw new Error(`timed out waiting for "${expected}". The page said:\n${(await text(page)).slice(0, 1500)}`);
+    throw new Error(`timed out waiting for "${expected}". The page said:\n${await failureText(page)}`);
   }
 }
 
@@ -66,7 +77,7 @@ async function waitAny(page: Page, options: string[], timeout = 60_000) {
   try {
     await page.waitForFunction((list) => list.some((t) => document.body.innerText.toLowerCase().includes(t.toLowerCase())), { timeout }, options);
   } catch {
-    throw new Error(`timed out waiting for any of ${JSON.stringify(options)}. The page said:\n${(await text(page)).slice(0, 1500)}`);
+    throw new Error(`timed out waiting for any of ${JSON.stringify(options)}. The page said:\n${await failureText(page)}`);
   }
 }
 
@@ -608,6 +619,179 @@ async function main() {
     await stranger.goto(`${siteUrl}/#/event/99`, { waitUntil: "domcontentloaded" });
     await waitText(stranger, "Event #99 not found");
     await shot(stranger, "17-not-found");
+
+    step("attendee pages never load the organizer or wallet bundles");
+    assert.equal(await page.evaluate(() => performance.getEntriesByType("resource").some((entry) => /\/(Hosting-|build-)/.test(entry.name))), false);
+
+    step("an organizer creates an event from the browser using the sandbox wallet");
+    const hostPage = await (await browser.createBrowserContext()).newPage();
+    await hostPage.setViewport(PHONE);
+    const hostErrors: string[] = [];
+    hostPage.on("pageerror", (error) => hostErrors.push(String(error)));
+    const walletCalls: HostTransaction[] = [];
+    await hostPage.exposeFunction("__bailSandboxSign", async (transaction: HostTransaction) => {
+      walletCalls.push(transaction);
+      const result = await organizer.signAndSendTransaction({ receiverId: transaction.receiverId, actions: transaction.actions.map(({ params }) => actions.functionCall(params.methodName, params.args, BigInt(params.gas), BigInt(params.deposit))) });
+      // Exercise the id lookup fallback used by wallets that return no execution outcome.
+      return transaction.actions[0]!.params.methodName === "create_event" ? {} : result;
+    });
+    await hostPage.evaluateOnNewDocument((accountId) => {
+      window.__BAIL_TEST_WALLET__ = { accountId, signAndSendTransaction: (transaction) => (window as unknown as { __bailSandboxSign: (tx: typeof transaction) => Promise<unknown> }).__bailSandboxSign(transaction) };
+    }, organizer.accountId);
+    let failFirstReveal = true;
+    const revealRequests: { slot: number; at: number }[] = [];
+    const hostRequests: { url: string; body: string }[] = [];
+    await hostPage.setRequestInterception(true);
+    hostPage.on("request", (request) => {
+      hostRequests.push({ url: request.url(), body: request.postData() ?? "" });
+      if (request.url().endsWith("/config.json")) {
+        void request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ relayerUrl, rpcUrl: sb.rpcUrl, contractId: bail.accountId, token: usdc.accountId, testWallet: true }) });
+      } else if (request.url() === `${relayerUrl}/v1/reveal` && request.method() === "POST") {
+        const slot = JSON.parse(request.postData()!).slot as number;
+        void view.now().then((at) => revealRequests.push({ slot, at }));
+        if (failFirstReveal || slot === 1) {
+          failFirstReveal = false;
+          void request.respond({ status: 503, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "Test relayer outage" }) });
+        } else void request.continue();
+      } else void request.continue();
+    });
+    await hostPage.goto(`${siteUrl}/#/host`, { waitUntil: "domcontentloaded" });
+    await clickText(hostPage, "Connect NEAR wallet");
+    await waitText(hostPage, organizer.accountId);
+    const setField = async (selector: string, value: string) => {
+      await hostPage.$eval(selector, (element, value) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(element, value);
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+      }, value);
+    };
+    const hostedOpens = (await view.now()) + 4 * MINUTE;
+    await setField("#host-startsAt", localDateTime(hostedOpens));
+    await setField("#host-slots", "2");
+    await setField("#host-windowMinutes", "1");
+    await setField("#host-checkinMinutes", "5");
+    await setField("#host-capacity", "3");
+    await setField("#host-title", "Browser community call");
+    await setField("#host-callUrl", "https://meet.example/community");
+    await setField("#host-arbiter", organizer.accountId);
+    await waitText(hostPage, "The arbiter cannot be the organizer");
+    await setField("#host-arbiter", arbiter.accountId);
+    await waitText(hostPage, "Account exists on NEAR testnet");
+    await hostPage.click(".host-advanced summary");
+    await setField("#host-revealMinutes", "1");
+    await setField("#host-disputeMinutes", "1");
+    for (const width of [320, 390, 1440]) {
+      await hostPage.setViewport({ ...PHONE, width, height: 1000, deviceScaleFactor: 1 });
+      assert.ok(await hostPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `host form fits ${width}px`);
+      await hostPage.evaluate(() => window.scrollTo(0, 0));
+      await shot(hostPage, `18-host-create-${width}`);
+    }
+    await clickText(hostPage, "Create event");
+    await waitText(hostPage, "Your event is on");
+    const hostedId = Number((await hostPage.$eval("#attendee-link", (input) => (input as HTMLInputElement).value)).match(/event\/(\d+)$/)![1]);
+    assert.equal(hostedId, 1);
+    const hosted = (await view.event(hostedId))!;
+    assert.equal(hosted.organizer, organizer.accountId);
+    assert.equal(hosted.arbiter, arbiter.accountId);
+    assert.equal(hosted.deposit, "500000");
+    assert.equal(hosted.capacity, 3);
+    assert.deepEqual(hosted.checkin, { slots: 2, required: 2, window_ms: MINUTE });
+    assert.equal(walletCalls.length, 1, "creating needs one ordinary wallet transaction");
+    assert.equal(walletCalls[0]!.actions[0]!.params.deposit, await view.storageCost(3));
+    const hostCodes = await hostPage.evaluate((key) => JSON.parse(localStorage.getItem(key)!).codes as string[], HostStore.key(bail.accountId, hostedId));
+    assert.equal(hostCodes.length, 2);
+    assert.ok(hostCodes.every((code) => !hostRequests.some((request) => request.url.includes(code) || request.body.includes(code))), "unopened codes never leave the browser");
+    await clickText(hostPage, "Open the host screen");
+    await clickText(hostPage, "Connect NEAR wallet");
+    await waitText(hostPage, "Next up: code 1");
+    assert.ok(hostCodes.every((code) => !hostRequests.some((request) => request.body.includes(code))), "the host route does not send unopened codes");
+    assert.equal(await hostPage.evaluate((codes) => codes.some((code) => document.body.textContent!.includes(code)), hostCodes), false, "unopened codes are absent from the DOM, including hidden content");
+
+    step("a fresh device explains the missing host record");
+    const emptyHost = await (await browser.createBrowserContext()).newPage();
+    await emptyHost.evaluateOnNewDocument((accountId) => { window.__BAIL_TEST_WALLET__ = { accountId, signAndSendTransaction: async () => { throw new Error("No signing on this device"); } }; }, organizer.accountId);
+    await emptyHost.setRequestInterception(true);
+    emptyHost.on("request", (request) => {
+      if (request.url().endsWith("/config.json")) void request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ relayerUrl, rpcUrl: sb.rpcUrl, contractId: bail.accountId, token: usdc.accountId, testWallet: true }) });
+      else void request.continue();
+    });
+    await emptyHost.goto(`${siteUrl}/#/event/${hostedId}/host`, { waitUntil: "domcontentloaded" });
+    await waitText(emptyHost, "The codes live on the creating device");
+    assert.equal(await emptyHost.$("[data-testid=host-live-code]"), null);
+    await emptyHost.close();
+
+    step("an attendee RSVPs to the event created in the browser");
+    const hostedAttendee = await (await browser.createBrowserContext()).newPage();
+    await hostedAttendee.setViewport(PHONE);
+    await hostedAttendee.goto(`${siteUrl}/#/event/${hostedId}/rsvp`, { waitUntil: "domcontentloaded" });
+    await waitText(hostedAttendee, "Before you pay");
+    assert.doesNotMatch(await text(hostedAttendee), /Browser community call|meet\.example/);
+    await hostedAttendee.click('input[type="checkbox"]');
+    await clickText(hostedAttendee, "Create my ticket key");
+    await clickText(hostedAttendee, "Show key");
+    const hostedTicket = Ticket.restore(await hostedAttendee.$eval('[data-testid="ticket-key"]', (element) => element.textContent!));
+    await hostedAttendee.click('input[type="checkbox"]');
+    await clickText(hostedAttendee, "Continue to payment");
+    await clickText(hostedAttendee, "Pay 0.5 test USDC");
+    await waitText(hostedAttendee, "You're in", 90_000);
+    await clickText(hostedAttendee, "Open my ticket");
+
+    step("only the host opens codes, and only the live code is displayed");
+    await sb.advanceTo(view, hosted.schedule.checkin_opens_at_ms + 15_000);
+    await nudge(hostPage); await nudge(hostedAttendee);
+    await clickText(hostPage, "Open code 1");
+    await hostPage.waitForSelector('[data-testid="host-live-code"]');
+    assert.equal(await hostPage.$eval('[data-testid="host-live-code"]', (element) => element.textContent!.split(" ").length), 5);
+    assert.equal(await hostPage.evaluate((code) => document.body.textContent!.includes(code), hostCodes[1]!), false, "code 2 stays hidden while code 1 is live");
+    assert.equal(walletCalls.length, 2);
+    assert.ok(hostCodes.every((code) => !JSON.stringify(walletCalls).includes(code)), "wallet opening contains only commitments");
+    for (const width of [320, 390, 1440]) {
+      await hostPage.setViewport({ ...PHONE, width, height: 1000, deviceScaleFactor: 1 });
+      assert.ok(await hostPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `live host code fits ${width}px`);
+      await shot(hostPage, `19-host-live-${width}`);
+    }
+    await waitText(hostedAttendee, "Code 1 of 2 is live");
+    await hostedAttendee.type("#code", hostCodes[0]!);
+    await clickText(hostedAttendee, "Send code");
+    await waitText(hostedAttendee, "Confirmation comes after the host reveals the code");
+
+    step("closed windows reveal automatically, retry after reload, and fall back to the wallet");
+    const firstOpened = (await view.event(hostedId))!.slots[0]!.opened_at_ms;
+    await sb.advanceTo(view, firstOpened + MINUTE + 15_000);
+    await nudge(hostPage);
+    await waitText(hostPage, "Automatic reveal needs a retry");
+    await hostPage.reload({ waitUntil: "domcontentloaded" });
+    await hostPage.waitForFunction(() => document.querySelector(".host-code-status li strong")?.textContent === "Revealed");
+    assert.equal(walletCalls.length, 2, "automatic reveal and its reload retry need no wallet approval");
+    await clickText(hostPage, "Connect NEAR wallet");
+    await clickText(hostPage, "Open code 2");
+    await hostPage.waitForSelector('[data-testid="host-live-code"]');
+    await nudge(hostedAttendee);
+    await waitText(hostedAttendee, "Code 2 of 2 is live");
+    await hostedAttendee.type("#code", hostCodes[1]!);
+    await clickText(hostedAttendee, "Send code");
+    await waitText(hostedAttendee, "Confirmation comes after the host reveals the code");
+    const secondOpened = (await view.event(hostedId))!.slots[1]!.opened_at_ms;
+    await sb.advanceTo(view, secondOpened + MINUTE + 15_000);
+    await nudge(hostPage);
+    await waitText(hostPage, "Automatic reveal needs a retry");
+    await clickText(hostPage, "Reveal with wallet");
+    await hostPage.waitForFunction(() => [...document.querySelectorAll(".host-code-status li strong")].every((element) => element.textContent === "Revealed"));
+    assert.equal(walletCalls.length, 4, "one creation, two opens, one explicit wallet reveal");
+    assert.ok(revealRequests.length >= 3);
+    assert.ok(revealRequests.every(({ slot, at }) => at >= (slot === 0 ? firstOpened : secondOpened) + MINUTE), "no reveal request is sent during a code window");
+    assert.ok(hostRequests.every((request) => hostCodes.every((code) => !request.url.includes(code))), "codes never enter a URL");
+
+    step("the browser-hosted event settles with the attendee paid");
+    await sb.advanceTo(view, hosted.schedule.dispute_ends_at_ms);
+    await keeper.tick(); await keeper.tick();
+    await nudge(hostPage); await nudge(hostedAttendee);
+    await waitText(hostedAttendee, "You attended");
+    await waitText(hostedAttendee, "Paid");
+    assert.equal((await view.event(hostedId))!.tally?.attended, 1);
+    assert.equal(await sb.balance(usdc.accountId, hostedTicket.accountId), USDC / 2n);
+    assert.deepEqual(hostErrors, []);
+    await shot(hostedAttendee, "20-browser-hosted-results");
+    await hostPage.close(); await hostedAttendee.close();
 
     assert.deepEqual(errors.filter((e) => !/favicon/.test(e)), [], "no errors in the browser console");
     console.log("\nAll end-to-end checks passed.");
