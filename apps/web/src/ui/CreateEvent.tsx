@@ -4,10 +4,11 @@ import { CREATE_EVENT_TGAS, buildEvent, createdEventId, minCheckinMinutes } from
 
 import { useApp } from "../context.tsx";
 import { useChainNow, usePoll } from "../hooks.ts";
+import { confirmHostWalletAction } from "../lib/host-confirmation.ts";
 import { checkArbiter, defaultHostFields, validateHostFields, type HostFields } from "../lib/host-plan.ts";
 import { findCreatedEvent, makeHostRecord, type HostRecord, type HostStore, type PendingHost } from "../lib/host-record.ts";
 import { formatUnits } from "../lib/money.ts";
-import { assertWalletSuccess, hostTransaction } from "../lib/organizer-wallet.ts";
+import { hostTransaction } from "../lib/organizer-wallet.ts";
 import { HostWallet, RelayerHealth, type HostWalletState } from "./HostCommon.tsx";
 import { CopyButton, Notice } from "./common.tsx";
 import { Icon } from "./Icon.tsx";
@@ -19,6 +20,7 @@ export function CreateEvent({ walletState, store }: { walletState: HostWalletSta
   const [pending, setPending] = useState(() => store.pending(config.contractId));
   const [success, setSuccess] = useState<HostRecord | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -51,9 +53,8 @@ export function CreateEvent({ walletState, store }: { walletState: HostWalletSta
   const arbiterOk = arbiterCheck?.account === arbiter && arbiterCheck.organizer === organizer && arbiterCheck.error === null;
   const minimum = Number.isInteger(Number(fields.slots)) && Number(fields.slots) >= 1 && Number(fields.slots) <= 5 && Number.isSafeInteger(Number(fields.windowMinutes)) && Number(fields.windowMinutes) >= 1 ? minCheckinMinutes(Number(fields.slots), Number(fields.windowMinutes)) : null;
 
-  const complete = async (id: number, creation: PendingHost) => {
-    const event = await view.event(id);
-    if (!event || event.organizer !== creation.organizer || event.schedule.checkin_opens_at_ms !== creation.event.checkin_opens_at_ms) throw new Error("The created event could not be confirmed yet. Use Find my created event to check again.");
+  // Both callers have already found the event by organizer and planned start on chain.
+  const complete = (id: number, creation: PendingHost) => {
     const record = store.get(config.contractId, id) ?? makeHostRecord(config.contractId, id, creation);
     store.save(record);
     store.clearPending(config.contractId);
@@ -62,7 +63,7 @@ export function CreateEvent({ walletState, store }: { walletState: HostWalletSta
 
   const create = async () => {
     if (!wallet || lock.current || pending) return;
-    lock.current = true; setBusy(true); setError(null);
+    lock.current = true; setBusy(true); setChecking(false); setError(null);
     try {
       // ChainClock interpolates with performance.now(), which can include fractional milliseconds.
       // The contract's schedule fields are integer u64 timestamps.
@@ -75,24 +76,32 @@ export function CreateEvent({ walletState, store }: { walletState: HostWalletSta
       const creation = { organizer: wallet.accountId, event, title: fields.title.trim(), callUrl: fields.callUrl.trim() };
       store.savePending(config.contractId, creation);
       setPending(creation); setNotFound(false);
-      const outcome = await wallet.signAndSendTransaction(hostTransaction(config.contractId, "create_event", { event }, CREATE_EVENT_TGAS, deposit));
-      assertWalletSuccess(outcome);
-      const id = createdEventId(outcome) ?? await findCreatedEvent(view, wallet.accountId, event.checkin_opens_at_ms, store.lastId(config.contractId));
-      if (id === null) throw new Error("No created event was found yet. Check your wallet activity, then use Find my created event.");
-      await complete(id, creation);
+      const id = await confirmHostWalletAction(
+        () => wallet.signAndSendTransaction(hostTransaction(config.contractId, "create_event", { event }, CREATE_EVENT_TGAS, deposit)),
+        async (outcome) => {
+          const returnedId = createdEventId(outcome);
+          if (returnedId !== null) {
+            const candidate = await view.event(returnedId);
+            if (candidate?.organizer === wallet.accountId && candidate.schedule.checkin_opens_at_ms === event.checkin_opens_at_ms) return returnedId;
+          }
+          return findCreatedEvent(view, wallet.accountId, event.checkin_opens_at_ms, store.lastId(config.contractId));
+        },
+        () => setChecking(true),
+      );
+      complete(id, creation);
     } catch (error) { setError(error instanceof Error ? error.message : "The event could not be created. Check your wallet activity before trying again."); }
-    finally { lock.current = false; setBusy(false); }
+    finally { lock.current = false; setBusy(false); setChecking(false); }
   };
 
   const recover = async () => {
     if (!pending || lock.current || organizer !== pending.organizer) return;
-    lock.current = true; setBusy(true); setError(null);
+    lock.current = true; setBusy(true); setChecking(true); setError(null);
     try {
       const id = await findCreatedEvent(view, pending.organizer, pending.event.checkin_opens_at_ms, store.lastId(config.contractId));
       if (id === null) { setNotFound(true); setError("No matching event is on chain yet. Check your wallet activity before returning to the form."); }
-      else await complete(id, pending);
+      else complete(id, pending);
     } catch { setError("The event lookup could not finish. Try finding it again when the chain is reachable."); }
-    finally { lock.current = false; setBusy(false); }
+    finally { lock.current = false; setBusy(false); setChecking(false); }
   };
 
   if (success) {
@@ -114,7 +123,7 @@ export function CreateEvent({ walletState, store }: { walletState: HostWalletSta
     <HostWallet state={walletState} />
     {pending ? <section className="card" aria-labelledby="pending-host-title"><h2 id="pending-host-title">Check your event creation</h2><p>A wallet approval was started for {pending.organizer}. Find that event before sending another creation transaction.</p>
       {organizer !== pending.organizer && <Notice tone="wait">Connect {pending.organizer} to recover this event.</Notice>}
-      <button type="button" className="btn primary" disabled={busy || organizer !== pending.organizer} onClick={() => void recover()}>{busy ? "Checking the chain..." : "Find my created event"}</button>
+      <button type="button" className="btn primary" disabled={busy || organizer !== pending.organizer} onClick={() => void recover()}>{busy ? checking ? "Checking the chain..." : "Waiting for your wallet..." : "Find my created event"}</button>
       {notFound && <button type="button" className="btn quiet" disabled={busy} onClick={() => { store.clearPending(config.contractId); setPending(null); setError(null); setNotFound(false); }}>I checked my wallet; return to the form</button>}
     </section> : <form className="host-form" onSubmit={(e) => { e.preventDefault(); void create(); }}>
       <fieldset disabled={!wallet || busy}>

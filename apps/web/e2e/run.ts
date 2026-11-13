@@ -631,9 +631,11 @@ async function main() {
     const walletCalls: HostTransaction[] = [];
     await hostPage.exposeFunction("__bailSandboxSign", async (transaction: HostTransaction) => {
       walletCalls.push(transaction);
-      const result = await organizer.signAndSendTransaction({ receiverId: transaction.receiverId, actions: transaction.actions.map(({ params }) => actions.functionCall(params.methodName, params.args, BigInt(params.gas), BigInt(params.deposit))) });
-      // Exercise the id lookup fallback used by wallets that return no execution outcome.
-      return transaction.actions[0]!.params.methodName === "create_event" ? {} : result;
+      const outcome = await organizer.signAndSendTransaction({ receiverId: transaction.receiverId, actions: transaction.actions.map(({ params }) => actions.functionCall(params.methodName, params.args, BigInt(params.gas), BigInt(params.deposit))) });
+      // Meteor can execute successfully, crash its popup, and reject instead of returning an outcome.
+      const params = transaction.actions[0]!.params;
+      if (params.methodName !== "open_slot" || params.args.slot === 0) throw new Error("Wallet closed");
+      return outcome;
     });
     await hostPage.evaluateOnNewDocument((accountId) => {
       window.__BAIL_TEST_WALLET__ = { accountId, signAndSendTransaction: (transaction) => (window as unknown as { __bailSandboxSign: (tx: typeof transaction) => Promise<unknown> }).__bailSandboxSign(transaction) };
@@ -687,6 +689,7 @@ async function main() {
     }
     await clickText(hostPage, "Create event");
     await waitText(hostPage, "Your event is on");
+    assert.equal(await hostPage.$('[role="alert"]'), null, "creation succeeds on chain even when the wallet throws after sending");
     const hostedId = Number((await hostPage.$eval("#attendee-link", (input) => (input as HTMLInputElement).value)).match(/event\/(\d+)$/)![1]);
     assert.equal(hostedId, 1);
     const hosted = (await view.event(hostedId))!;
@@ -740,6 +743,8 @@ async function main() {
     await nudge(hostPage); await nudge(hostedAttendee);
     await clickText(hostPage, "Open code 1");
     await hostPage.waitForSelector('[data-testid="host-live-code"]');
+    await hostPage.waitForFunction(() => !document.body.innerText.includes("Checking the chain..."));
+    assert.equal(await hostPage.$('[role="alert"]'), null, "opening succeeds on chain even when the wallet throws after sending");
     assert.equal(await hostPage.$eval('[data-testid="host-live-code"]', (element) => element.textContent!.split(" ").length), 5);
     assert.equal(await hostPage.evaluate((code) => document.body.textContent!.includes(code), hostCodes[1]!), false, "code 2 stays hidden while code 1 is live");
     assert.equal(walletCalls.length, 2);
@@ -776,6 +781,8 @@ async function main() {
     await waitText(hostPage, "Automatic reveal needs a retry");
     await clickText(hostPage, "Reveal with wallet");
     await hostPage.waitForFunction(() => [...document.querySelectorAll(".host-code-status li strong")].every((element) => element.textContent === "Revealed"));
+    await hostPage.waitForFunction(() => !document.body.innerText.includes("Checking the chain..."));
+    assert.doesNotMatch(await text(hostPage), /Host action needs a check|Automatic reveal needs a retry|Wallet closed/, "a successful wallet reveal does not leave an alarming error");
     assert.equal(walletCalls.length, 4, "one creation, two opens, one explicit wallet reveal");
     assert.ok(revealRequests.length >= 3);
     assert.ok(revealRequests.every(({ slot, at }) => at >= (slot === 0 ? firstOpened : secondOpened) + MINUTE), "no reveal request is sent during a code window");
