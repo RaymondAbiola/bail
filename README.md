@@ -8,7 +8,9 @@ Site: [raymondabiola.github.io/bail](https://raymondabiola.github.io/bail/). Any
 
 ## The problem
 
-Kickback is the best known tool of this kind. Its organizer alone decides who attended: `finalize` in `AbstractConference.sol` (line 266) takes an attendance bitmap and is `onlyAdmin`. An organizer can mark only their own sock-puppet account as present and withdraw every deposit.
+People RSVP to free events and don't come. Across check-in data from more than 1,070 events, the median no-show rate is 28% for free events and 17% for paid ones, and 37% for small free events of 10 to 49 people ([PheedLoop Event Data Lab, April 2026](https://web.pheedloop.com/blog/event-data-lab-report-5)). Meetup reports that free events see 40 to 50% of RSVPs show up, and 70 to 85% once there is a fee ([Meetup](https://www.meetup.com/blog/how-to-get-people-to-show-up-to-your-events/)). A refundable deposit works: when 37signals moved the same event from free to a refundable $100 deposit, attendance went from 38 of 84 registrants (45%) to 50 of 55 (90%) ([Skift](https://meetings.skift.com/2026/09/02/the-100-experiment-that-slashed-no-show-rates-to-just-10/)).
+
+The catch is who holds the deposits and decides who showed up. Kickback is the best known onchain tool of this kind. Its organizer alone decides who attended: `finalize` in `AbstractConference.sol` (line 266) takes an attendance bitmap and is `onlyAdmin`. An organizer can mark only their own sock-puppet account as present and withdraw every deposit.
 
 This repository runs Kickback's real contract, copied unchanged and checked against upstream hashes, and shows the attack taking all four deposits. The same scenario fails against Bail. See [tests/kickback](tests/kickback/README.md) and the test `the_kickback_attack_fails_against_bail`.
 
