@@ -194,6 +194,7 @@ export function LiveCode({ eventId, event, slot, now, ticket, chain, stored, sav
           <button type="submit" className="btn primary block" disabled={submit.pending || !normalized}>
             {submit.pending ? "Sending..." : hasPrevious ? "Resubmit corrected code" : "Send code"} <Icon name="arrow" />
           </button>
+          {submit.pending && <p className="small muted" role="status">The first request can take up to a minute if the relayer is waking up.</p>}
           <p className="send-explainer">Sent first. Confirmed after reveal.</p>
         </form>
       )}

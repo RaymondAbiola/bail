@@ -75,6 +75,7 @@ main { flex: 1; min-width: 0; }
 .hero-description { max-width: 470px; font-size: clamp(1rem, 1.35vw, 1.125rem); line-height: 1.65; margin-top: 30px; }
 .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 26px; margin-top: 28px; }
 .hero-actions .btn { padding-inline: 25px; gap: 25px; min-height: 56px; }
+.hero-actions .hero-how-link { flex-basis: 100%; }
 .hero-reassurance { color: var(--ink-soft); font-size: .8rem; margin-top: 20px; }
 .hero-reassurance span { color: var(--ink); }
 .hero-ticket-wrap { position: relative; padding-bottom: 16px; min-width: 0; }
@@ -136,6 +137,8 @@ main { flex: 1; min-width: 0; }
 .landing-steps h3 { font-size: 1rem; margin-bottom: 8px; }
 .landing-steps p { font-size: .87rem; line-height: 1.55; max-width: 240px; }
 .money-note { font-size: .78rem; color: var(--ink-soft); line-height: 1.6; }
+.organizer-section { border-top: 1px solid var(--rule); padding-block: 38px; }
+.organizer-note { font-size: .78rem; color: var(--ink-soft); margin-top: 16px; max-width: 590px; }
 .trust-section { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; border-top: 1px solid var(--rule); padding-block: 50px; }
 .trust-section h2 { font-style: italic; margin: 17px 0 18px; font-size: clamp(2rem, 3.5vw, 3.3rem); }
 .trust-section > div > p:not(.eyebrow) { font-size: .94rem; max-width: 440px; }
@@ -292,6 +295,9 @@ th { font-size: .75rem; color: var(--ink-soft); font-weight: 500; }
   .event-finder { padding-inline: 28px; }
 }
 @media (max-width: 760px) {
+  .home-header .header-inner { flex-wrap: wrap; gap: 12px; padding-block: 16px; }
+  .home-header .main-nav { margin-left: auto; }
+  .home-header .nav-host-link { white-space: nowrap; }
   .header-inner { min-height: 78px; }
   .brand { font-size: 2.9rem; }
   .brand-group { gap: 14px; }

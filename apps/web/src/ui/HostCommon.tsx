@@ -68,16 +68,21 @@ export function HostWallet({ state }: { state: HostWalletState }) {
 
 export function RelayerHealth() {
   const { config } = useApp();
+  const [checking, setChecking] = useState(false);
   const health = usePoll(async () => {
-    const response = await fetch(`${config.relayerUrl}/v1/health`, { signal: AbortSignal.timeout(8000) });
-    const data = await response.json() as { ok?: boolean; contract?: string };
-    if (!response.ok || !data.ok || data.contract !== config.contractId) throw new Error("Relayer unavailable");
-    return true;
+    setChecking(true);
+    try {
+      const response = await fetch(`${config.relayerUrl}/v1/health`, { signal: AbortSignal.timeout(60_000) });
+      const data = await response.json() as { ok?: boolean; contract?: string };
+      if (!response.ok || !data.ok || data.contract !== config.contractId) throw new Error("Relayer unavailable");
+      return true;
+    } finally { setChecking(false); }
   }, 30_000, [config.relayerUrl, config.contractId]);
+  const waiting = checking || health.loading;
   return <div className="host-health">
-    <Notice tone={health.loading ? "info" : health.error ? "wait" : "good"} title={health.loading ? "Checking the relayer..." : health.error ? "Relayer unavailable" : "Relayer is reachable"}>
-      <p>{health.error ? "Attendees cannot RSVP or send codes through this relayer right now. Keep it running during the event." : "Attendees need the relayer to RSVP and send codes. Keep it running during the event."}</p>
+    <Notice tone={waiting ? "info" : health.error ? "wait" : "good"} title={waiting ? "Checking the relayer..." : health.error ? "Relayer unavailable" : "Relayer is reachable"}>
+      <p>{waiting ? "If it was asleep, this can take up to a minute." : health.error ? "Attendees cannot RSVP or send codes through this relayer right now. Keep it running during the event." : "Attendees need the relayer to RSVP and send codes. Keep it running during the event."}</p>
     </Notice>
-    {health.error && <button type="button" className="btn quiet" onClick={() => void health.refresh()}>Check relayer again</button>}
+    {health.error && <button type="button" className="btn quiet" disabled={waiting} onClick={() => void health.refresh()}>Check relayer again</button>}
   </div>;
 }

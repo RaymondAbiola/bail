@@ -132,6 +132,8 @@ test("the sandbox wallet is off by default and cannot activate on a public hostn
 
 test("reveal posts only to the dedicated relayer endpoint and tolerates another keeper winning", async (t) => {
   const requests: { url: string; body: unknown }[] = [];
+  const timeouts: number[] = [];
+  t.mock.method(AbortSignal, "timeout", (ms: number) => { timeouts.push(ms); return new AbortController().signal; });
   t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
     requests.push({ url, body: JSON.parse(init.body as string) });
     return new Response(JSON.stringify({ tx: "reveal-tx" }), { status: 200 });
@@ -142,4 +144,5 @@ test("reveal posts only to the dedicated relayer endpoint and tolerates another 
   await relayHostReveal("https://relayer.example", 8, 0, CODE);
   t.mock.method(globalThis, "fetch", async () => new Response("{}", { status: 422 }));
   await assert.rejects(relayHostReveal("https://relayer.example", 8, 0, CODE), /could not be confirmed/);
+  assert.deepEqual(timeouts, [60_000, 60_000, 60_000], "a sleeping relayer has a full minute to answer each reveal");
 });

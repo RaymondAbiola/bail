@@ -8,7 +8,7 @@ export function matchingHostCode(contractId: string, eventId: number, event: Eve
 export async function relayHostReveal(baseUrl: string, eventId: number, slot: number, code: string): Promise<void> {
   const response = await fetch(`${baseUrl}/v1/reveal`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(revealArgs(eventId, slot, code)), signal: AbortSignal.timeout(20_000),
+    body: JSON.stringify(revealArgs(eventId, slot, code)), signal: AbortSignal.timeout(60_000),
   });
   if (response.status === 409) return; // Another keeper already revealed it; re-read the chain.
   const body = await response.json().catch(() => ({})) as { tx?: string };

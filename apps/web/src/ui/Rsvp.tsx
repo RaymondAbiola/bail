@@ -291,6 +291,7 @@ function Pay({
             {pay.pending ? "Working..." : result.kind === "error" ? "Try again" : `Pay ${formatUsdc(event.deposit)} and RSVP`}
           </button>
         )}
+        {pay.pending && <p className="small muted" role="status">The first request can take up to a minute if the relayer is waking up.</p>}
       </div>
     </section>
   );

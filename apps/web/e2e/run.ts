@@ -271,7 +271,13 @@ async function main() {
     await waitText(page, "Demo sent. A real catch is confirmed after reveal.");
     for (const width of [320, 390, 768]) {
       await page.setViewport({ ...PHONE, width });
+      await waitText(page, "Put a little down.");
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `landing page fits ${width}px`);
+      assert.equal(await page.$eval('.home-header a[href="#/host"]', (link) => {
+        const box = link.getBoundingClientRect();
+        return box.width > 0 && box.height > 0 && box.top >= 0 && box.bottom <= innerHeight && box.right <= innerWidth;
+      }), true, `hosting is visible in the first screen at ${width}px`);
+      assert.ok(await page.$('.hero-actions a[href="#/host"]'));
     }
     await page.setViewport(PHONE);
     await shot(page, "00-landing-phone");
@@ -390,6 +396,7 @@ async function main() {
     const other = await (await browser.createBrowserContext()).newPage();
     await other.setViewport(PHONE);
     await other.goto(`${siteUrl}/#/event/0/restore`, { waitUntil: "domcontentloaded" });
+    await other.waitForSelector("#key");
     await other.type("#key", "ed25519:notakey");
     await clickText(other, "Check this key");
     await waitText(other, "not a valid ticket key");
@@ -502,6 +509,7 @@ async function main() {
     const mistaken = await (await browser.createBrowserContext()).newPage();
     await mistaken.setViewport(PHONE);
     await mistaken.goto(`${siteUrl}/#/event/0/restore`, { waitUntil: "domcontentloaded" });
+    await mistaken.waitForSelector("#key");
     await mistaken.type("#key", guests.dave.backup());
     await clickText(mistaken, "Check this key");
     await waitText(mistaken, "has a seat in this event");
@@ -641,6 +649,8 @@ async function main() {
       window.__BAIL_TEST_WALLET__ = { accountId, signAndSendTransaction: (transaction) => (window as unknown as { __bailSandboxSign: (tx: typeof transaction) => Promise<unknown> }).__bailSandboxSign(transaction) };
     }, organizer.accountId);
     let failFirstReveal = true;
+    let holdHealth = true;
+    const heldHealth: HTTPRequest[] = [];
     const revealRequests: { slot: number; at: number }[] = [];
     const hostRequests: { url: string; body: string }[] = [];
     await hostPage.setRequestInterception(true);
@@ -648,6 +658,8 @@ async function main() {
       hostRequests.push({ url: request.url(), body: request.postData() ?? "" });
       if (request.url().endsWith("/config.json")) {
         void request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ relayerUrl, rpcUrl: sb.rpcUrl, contractId: bail.accountId, token: usdc.accountId, testWallet: true }) });
+      } else if (request.url() === `${relayerUrl}/v1/health` && request.method() === "GET" && holdHealth) {
+        heldHealth.push(request);
       } else if (request.url() === `${relayerUrl}/v1/reveal` && request.method() === "POST") {
         const slot = JSON.parse(request.postData()!).slot as number;
         void view.now().then((at) => revealRequests.push({ slot, at }));
@@ -657,9 +669,27 @@ async function main() {
         } else void request.continue();
       } else void request.continue();
     });
-    await hostPage.goto(`${siteUrl}/#/host`, { waitUntil: "domcontentloaded" });
+    const healthStarted = hostPage.waitForRequest((request) => request.url() === `${relayerUrl}/v1/health`);
+    await hostPage.goto(`${siteUrl}/`, { waitUntil: "domcontentloaded" });
+    await waitText(hostPage, "Put a little down.");
+    await hostPage.click(".home-header .nav-host-link");
     await clickText(hostPage, "Connect NEAR wallet");
     await waitText(hostPage, organizer.accountId);
+    await healthStarted;
+    await wait(8500); // A cold start must survive the old 8-second health timeout.
+    assert.match(await hostPage.$eval(".host-health", (element) => element.textContent!), /Checking the relayer.*up to a minute/);
+    assert.doesNotMatch(await hostPage.$eval(".host-health", (element) => element.textContent!), /unavailable/i);
+    await heldHealth.shift()!.respond({ status: 503, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ ok: false }) });
+    await waitText(hostPage, "Relayer unavailable");
+    const retryHealth = hostPage.waitForRequest((request) => request.url() === `${relayerUrl}/v1/health`);
+    await clickText(hostPage, "Check relayer again");
+    await retryHealth;
+    await waitText(hostPage, "Checking the relayer...");
+    assert.match(await hostPage.$eval(".host-health", (element) => element.textContent!), /Checking the relayer.*up to a minute/);
+    assert.doesNotMatch(await hostPage.$eval(".host-health", (element) => element.textContent!), /unavailable/i, "a retry shows the waking state rather than the previous error");
+    holdHealth = false;
+    await heldHealth.shift()!.continue();
+    await waitText(hostPage, "Relayer is reachable");
     const setField = async (selector: string, value: string) => {
       await hostPage.$eval(selector, (element, value) => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(element, value);

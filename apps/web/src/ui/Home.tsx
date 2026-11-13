@@ -28,9 +28,10 @@ export function Home() {
           <p className="hero-description">A refundable deposit for your RSVP. Prove you were there with live codes. Get your deposit back, plus a share of no-shows’ deposits.</p>
           <div className="hero-actions">
             <button type="button" className="btn primary" onClick={findEvent}>Find your event <Icon name="arrow" /></button>
-            <a className="text-link" href="#/how-it-works">See how it works <span aria-hidden="true">↗</span></a>
+            <a className="btn" href="#/host">Host an event</a>
+            <a className="text-link hero-how-link" href="#/how-it-works">See how it works <span aria-hidden="true">↗</span></a>
           </div>
-          <p className="hero-reassurance">No wallet. No gas. <span>Testnet demo.</span></p>
+          <p className="hero-reassurance">No wallet or gas for attendees. <span>Testnet demo.</span></p>
         </div>
         <DemoTicket />
       </section>
@@ -52,6 +53,17 @@ export function Home() {
           <li><span className="step-number">03</span><div><Icon name="coins" /><h3>Get your deposit back</h3><p>Qualify by codes and share the deposits forfeited by no-shows.</p></div></li>
         </ol>
         <p className="money-note">If you do not qualify, your deposit is forfeited to qualifying attendees. Cancel before the cutoff for a full refund.</p>
+      </section>
+
+      <section className="organizer-section content-width" aria-labelledby="organizer-title">
+        <div className="section-heading"><p className="eyebrow">For organizers / In your browser</p><h2 id="organizer-title">Bring the people.<br />Bail keeps the commitment.</h2></div>
+        <ol className="landing-steps">
+          <li><span className="step-number">01</span><div><Icon name="ticket" /><h3>Connect and create</h3><p>Connect a NEAR testnet wallet. Set the rules, name an independent arbiter, and share your event link.</p></div></li>
+          <li><span className="step-number">02</span><div><Icon name="calendar" /><h3>Run your call</h3><p>Open each code when you choose, with one wallet approval. Keep the host screen open for reveals.</p></div></li>
+          <li><span className="step-number">03</span><div><Icon name="coins" /><h3>Let the keeper settle</h3><p>After the dispute period, the keeper settles the event and pays out according to its rules.</p></div></li>
+        </ol>
+        <a className="btn" href="#/host">Host an event <Icon name="arrow" /></a>
+        <p className="organizer-note">Organizers need a NEAR wallet for storage and fees. Attendees need neither a wallet nor gas. Testnet only.</p>
       </section>
 
       <PastEvents />
