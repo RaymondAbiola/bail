@@ -51,6 +51,7 @@ main { flex: 1; min-width: 0; }
 .header-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 96px; border-bottom: 1px solid var(--rule); }
 .brand-group { display: flex; align-items: center; gap: 22px; }
 .brand { color: var(--ink); font-family: Georgia, serif; font-size: 3.5rem; font-weight: 700; font-style: italic; letter-spacing: -.075em; text-decoration: none; line-height: 1; }
+.brand-logo { display: block; width: 2em; height: auto; }
 .testnet-badge { font-size: .65rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; padding: 5px 10px; border-radius: 5px; background: var(--mint); color: var(--mint-ink); white-space: nowrap; }
 .main-nav { display: flex; align-items: center; gap: 30px; font-size: .875rem; }
 .main-nav > a:not(.btn) { color: var(--ink); text-decoration: none; padding-block: 12px; }
@@ -59,6 +60,7 @@ main { flex: 1; min-width: 0; }
 .event-header { background: var(--forest-dark); color: var(--paper); }
 .event-header .header-inner { border: 0; min-height: 80px; }
 .event-header .brand, .event-header .main-nav > a { color: var(--paper); }
+.event-header .brand-logo { filter: brightness(0) invert(1); }
 .footer { margin-top: auto; padding: 0 0 24px; }
 .footer-inner { border-top: 1px solid var(--rule); padding-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .footer-brand { display: flex; align-items: center; gap: 25px; }
@@ -374,6 +376,7 @@ th { font-size: .75rem; color: var(--ink-soft); font-weight: 500; }
   .finder-controls { flex-direction: column; }
   .event-finder { padding: 24px 20px; }
   .event-header .header-inner { min-height: 68px; }
+  .event-header .brand { font-size: 2rem; }
   .event-header .main-nav { font-size: .73rem; gap: 13px; }
   .card, .ticket { padding: 20px; gap: 15px; }
   .ticket .perforation, .ticket-tear { margin-inline: -20px; }
