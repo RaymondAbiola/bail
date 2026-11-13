@@ -157,7 +157,8 @@ export function relayerServer(options: ServerOptions): Server {
 
   async function handle(req: IncomingMessage): Promise<{ status: number; body: object }> {
     const url = new URL(req.url ?? "/", "http://relayer");
-    if (req.method === "GET" && url.pathname === "/v1/health") {
+    // HEAD too, since uptime monitors use it to keep a sleeping host awake.
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/v1/health") {
       return {
         status: 200,
         body: { ok: true, contract: options.contractId, account: options.chain.accountId, faucet: !!options.sponsor },

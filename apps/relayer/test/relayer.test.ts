@@ -154,6 +154,7 @@ test("the relayer answers clearly when it can't help", async () => {
     assert.equal((await fetch(`${base}/v1/nope`)).status, 404);
     const health = await (await fetch(`${base}/v1/health`)).json();
     assert.deepEqual(health, { ok: true, contract: CONTRACT, account: "relayer.testnet", faucet: false });
+    assert.equal((await fetch(`${base}/v1/health`, { method: "HEAD" })).status, 200, "uptime monitors check with HEAD");
     const preflight = await fetch(`${base}/v1/catch`, { method: "OPTIONS" });
     assert.equal(preflight.status, 204);
     assert.equal(preflight.headers.get("access-control-allow-origin"), "*");
