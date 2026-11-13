@@ -1,0 +1,22 @@
+# The Bail relayer and keeper on Render. Secrets are entered in Render's dashboard, never here.
+services:
+  - type: web
+    name: bail-relayer
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start -w @bail/relayer
+    healthCheckPath: /v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: RELAYER_ACCOUNT
+        value: relayer.dontbail.testnet
+      - key: RELAYER_KEYS
+        sync: false
+      - key: SPONSOR_ACCOUNT
+        value: faucet.dontbail.testnet
+      - key: SPONSOR_KEY
+        sync: false
+      - key: ALLOW_ORIGIN
+        value: https://raymondabiola.github.io
