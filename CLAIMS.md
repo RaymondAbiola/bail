@@ -68,6 +68,8 @@ Commands run from the repository root. `cargo test -p bail --lib` runs the Rust 
 | Claim | Proof |
 |---|---|
 | A full event ran on NEAR testnet and paid out as designed: two attendees received 1.5 test USDC each, the one who missed the codes received 0, and the contract held 0 afterwards. | [docs/testnet-rehearsal.md](docs/testnet-rehearsal.md), with balances read from the token contract. The attendees were scripts, not people. |
+| Bail ran twice with real people on phones: the dry run (event 4, 4 seats, 1 attended, 3 forfeited) and the first event (event 5, 11 seats, 6 attended, 5 forfeited, 0.916666 test USDC to each attendee). Every payout was sent except one, to a mistyped address that doesn't exist. | [docs/dry-run.md](docs/dry-run.md), [docs/first-event.md](docs/first-event.md), and `python3 scripts/check-events.py`, which recounts attendance from the raw catch proofs and recomputes every payout without trusting the contract's tally |
+| A Sputnik DAO, with two council members and not the organizer, voted to void event 6 on testnet, and every deposit was refunded. | [docs/dao-arbiter-event.md](docs/dao-arbiter-event.md) and `python3 scripts/check-events.py` |
 | The deployed contract and its four deployment transactions are on testnet. | `deployments/testnet.json` and `python3 scripts/verify.py` |
 
 ## Not claimed
