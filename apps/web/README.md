@@ -2,7 +2,7 @@
 
 A static site for attendees and observers: look up an event, RSVP with test USDC from a fresh browser, catch live codes on a phone during the call, see results, and read an organizer view. It needs no wallet and no NEAR. It reads the chain over public RPC and sends actions through the Bail relayer.
 
-Vite, React and TypeScript, plain CSS, and the browser-safe `@bail/sdk`. No router, component library, wallet SDK or backend. About 100 KB gzipped.
+Vite, React and TypeScript, plain CSS, and the browser-safe `@bail/sdk`. No router, component library, wallet SDK or backend. About 115 KB gzipped.
 
 ## Run it
 
@@ -39,12 +39,15 @@ A missing or invalid `relayerUrl` shows a setup message instead of a broken page
 npm run build -w @bail/web        # writes apps/web/dist
 ```
 
-`dist` is plain static files with relative paths and hash routes (`#/event/3`), so it works from any static host or folder with no rewrite rules. Put your `config.json` in it. The relayer must allow the site's origin; it allows any origin unless `ALLOW_ORIGIN` is set.
+`dist` is plain static files with relative paths and hash routes (`#/event/3`), so it works from any static host or folder with no rewrite rules. Put your `config.json` in it.
+
+The public site, [raymondabiola.github.io/bail](https://raymondabiola.github.io/bail/), is built by `.github/workflows/pages.yml` on every push to `main`, with `site-config.json` as its `config.json`. Results and public records need only the chain. Actions need a running relayer: set the `RELAYER_URL` repository variable to point the site at one; without it, actions say the relayer isn't running. The relayer must allow the site's origin; it allows any origin unless `ALLOW_ORIGIN` is set.
 
 ## What it does
 
-- **Event page**: what the event is, when check-in opens (in your timezone), seats, deposit, how it works, the named arbiter, fixed schedule and public evidence. Works without a ticket.
-- **RSVP**: terms and payout address, then a full-screen key backup, then payment. The ticket key is created in the browser, shown only on request, and never sent anywhere. Every step reads the chain first, so retrying after any failure or lost reply can't pay twice or make a second ticket.
+- **Landing page**: what Bail is, the real events it has run and the Sputnik DAO arbiter demo, each with its result read from the chain.
+- **Event page**: what the event is, when check-in opens (in your timezone), seats, deposit, how it works, the named arbiter, fixed schedule and public evidence. Works without a ticket. Once an event has finished, a visitor with no ticket sees its result instead of RSVP steps.
+- **RSVP**: terms and payout address, then a full-screen key backup, then payment. A typed NEAR payout account must exist before you can continue, and the app suggests the `.testnet` name when it doesn't. The ticket key is created in the browser, shown only on request, and never sent anywhere. Every step reads the chain first, so retrying after any failure or lost reply can't pay twice or make a second ticket.
 - **Check-in**: a countdown to opening, then when a code goes live it takes over the screen: one input for the five words, word-list suggestions that never steal focus, a clear "sent" versus "confirmed after the host reveals the code", corrections with rising attempt numbers, and a "the host did not show a code" flag.
 - **Dispute and results**: standing, vouching for someone whose phone died, then outcome, payout and whether it has actually been paid. Results are saved in the browser, because closing an event frees the on-chain ticket record.
 - **Organizer view** (`#/event/3/organizer`): public, read only headcount and per-code activity.

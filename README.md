@@ -1,6 +1,6 @@
 # Bail
 
-Bail is deposit escrow for events, on NEAR. To RSVP you put down a small deposit. If you attend, you get it back plus an equal share of the deposits forfeited by people who did not. Attendance is proved by the attendees themselves with live codes, and nobody, including the organizer, can write the attendance list.
+Bail is deposit escrow for events, on NEAR. To RSVP you put down a small deposit. If you attend, you get it back plus an equal share of the deposits forfeited by people who did not. Attendance is proved by the attendees themselves with live codes, and nobody, including the organizer, can write the attendance list. If the host cheats, the event's arbiter can void the event and refund everyone, and that arbiter can be the community's own Sputnik DAO, acting by council vote.
 
 Status: the contract is deployed and locked on NEAR **testnet** at [`v1.dontbail.testnet`](https://testnet.nearblocks.io/address/v1.dontbail.testnet), using Circle's test USDC. It is not deployed on mainnet, it handles no real money, and it is unaudited. Built for NEAR HACKATHON, track: Social Money.
 
@@ -17,10 +17,30 @@ This repository runs Kickback's real contract, copied unchanged and checked agai
 1. **RSVP.** The organizer creates an event with a deposit, a capacity, a schedule and a named arbiter. Attendees RSVP with the deposit. Free cancellation until a cutoff.
 2. **Check-in.** On a video call the host shows live codes, each five random words, whenever the host chooses, with the last one usually kept for the end. Nobody knows in advance when a code is coming. Each code is live for a short window. Attendees type it in. The host commits to each code on chain when it opens, so it can't be changed later.
 3. **Reveal.** After a code's window, anyone who knows it can reveal it. The contract checks each attendee's catch against it. An attendee needs R of the K codes. A code the host never opens or reveals becomes void and only lowers the requirement.
-4. **Dispute.** Attendees who qualified can vouch for someone whose phone died (two vouches get the deposit back, without the bonus). If the host hides codes, attendees flag the slot and the arbiter can void the event, which refunds everyone. The arbiter can't be the organizer and can't choose who attended.
+4. **Dispute.** Attendees who qualified can vouch for someone whose phone died (two vouches get the deposit back, without the bonus). If the host hides codes, attendees flag the slot and the arbiter, such as the community's Sputnik DAO, can void the event, which refunds everyone. The arbiter can't be the organizer and can't choose who attended.
 5. **Settle.** Anyone can run the tally and the payouts. A keeper does it automatically. Fees, if any, come only from forfeited deposits.
 
 Attendees need no wallet and no NEAR: their ticket key is made in the browser, a relayer pays the gas, and a faucet provides test USDC on testnet.
+
+## A community DAO as the arbiter
+
+Live codes stop the organizer from writing the attendance list, but one attack is left: a host who never shows the codes to the call and gives them only to their own tickets. Everyone on the call sees that no code appeared, and can flag it on chain. Each event names an **arbiter** at creation, whose only power is to void the event, which refunds every deposit. It can't pick who attended, can't move money anywhere except back to depositors, and can't be the organizer.
+
+The arbiter is just an account, so it can be the community's **Sputnik DAO**, with no extra code in Bail. Anyone can propose a FunctionCall to `void_event` with 1 yoctoNEAR, the council votes, and only a passed vote calls Bail:
+
+```json
+{ "FunctionCall": { "receiver_id": "v1.dontbail.testnet", "actions": [
+  { "method_name": "void_event", "args": "<base64 of {\"event_id\": 6}>", "deposit": "1", "gas": "30000000000000" } ] } }
+```
+
+**Done on testnet, 13 Nov 2026.** Event 6 named [`bail-arbiter.sputnikv2.testnet`](https://testnet.nearblocks.io/address/bail-arbiter.sputnikv2.testnet) as its arbiter, a DAO from testnet's Sputnik factory with two council members, both needed to pass a vote: `dolapo-bail.testnet`, who was the first event's independent arbiter, and `raymond-bail.testnet`, the author's own account, which is not the organizer account. Neither can void the event alone. Three scripted attendees RSVPed. One council vote left the event active; the second passed the proposal, the DAO called `void_event`, and the keeper refunded all three deposits. The record, with the three transactions: [docs/dao-arbiter-event.md](docs/dao-arbiter-event.md).
+
+Check it yourself:
+
+- `python3 scripts/check-events.py` reads the DAO's code, council, proposal and votes from the chain, and the refunds from Bail.
+- `cargo test -p bail --test sandbox a_sputnik_dao` runs the same flow on a local node with the exact DAO code the testnet factory deploys today. A council member calling `void_event` directly is refused, and one vote of two changes nothing.
+
+A Trezu treasury is a Sputnik DAO, so a community's Trezu treasury can be the arbiter the same way. That isn't tested in Trezu's interface, whose hosted app is mainnet-only.
 
 ## Used with real people
 
@@ -72,11 +92,11 @@ You will see the app at `http://localhost:5180/` and a stand-in host screen at `
 | `packages/sdk` | Browser-safe TypeScript: ticket keys, codes, hashes, signed actions, RSVP notes, typed reads. Verified byte for byte against the contract |
 | `apps/relayer` | Relayer (pays attendees' gas, checks every action first), testnet faucet and sponsored deposits, and the keeper that settles events |
 | `apps/host` | `bail-host`: the organizer's console for creating events, running live codes, and reporting |
-| `apps/web` | The web app for attendees. See [apps/web/README.md](apps/web/README.md) |
+| `apps/web` | The web app for attendees and the public site, with each event's results. See [apps/web/README.md](apps/web/README.md) |
 | `packages/testkit` | A local NEAR node with the contract deployed, shared by the integration tests |
-| `scripts` | `deploy.sh` and `verify.py` |
+| `scripts` | `deploy.sh`, `verify.py`, `check-events.py` and `render-diagrams.sh` |
 | `deployments` | `testnet.json`: the deployed contract, its source commit and its transactions |
-| `docs` | [ARCHITECTURE.md](docs/ARCHITECTURE.md) (design, threat model, invariants), [ROADMAP.md](docs/ROADMAP.md) |
+| `docs` | [ARCHITECTURE.md](docs/ARCHITECTURE.md) (design, threat model, invariants), [ROADMAP.md](docs/ROADMAP.md), and the testnet records: [rehearsal](docs/testnet-rehearsal.md), [dry run](docs/dry-run.md), [first event](docs/first-event.md), [DAO arbiter](docs/dao-arbiter-event.md) |
 
 ## NEAR features used
 
@@ -85,14 +105,14 @@ You will see the app at `http://localhost:5180/` and a stand-in host screen at `
 - **NEP-366 meta transactions.** The relayer sponsors an attendee's deposit only if it is exactly the RSVP transfer, so attendees pay no gas.
 - **Implicit accounts.** A ticket key is also the key of a NEAR implicit account, so one backup is enough.
 - **NEP-141 `ft_transfer_call`.** Deposits arrive as a transfer with an RSVP note. The same path serves deposits from NEAR Intents.
-- **Sputnik DAO as arbiter.** An event's arbiter can be a community's DAO, with no extra code in Bail: the council votes on a FunctionCall proposal to `void_event`. On testnet, a two-member DAO voted to void event 6 and everyone was refunded ([docs/dao-arbiter-event.md](docs/dao-arbiter-event.md)); the sandbox test `a_sputnik_dao_votes_to_void_an_event` runs the same flow with the DAO code testnet's factory deploys.
-- **Trezu.** A Trezu treasury is a Sputnik DAO, so a community's Trezu treasury can be an event's arbiter without changes. That is not yet tested in Trezu's interface, whose hosted app is mainnet-only. Sending a share of each forfeit pool to the community's Trezu treasury is planned ([ARCHITECTURE.md section 16](docs/ARCHITECTURE.md#16-beyond-the-hackathon)).
+- **Sputnik DAO as arbiter.** A community's DAO can void an event through a council vote, with no extra code in Bail. Done on testnet; see [A community DAO as the arbiter](#a-community-dao-as-the-arbiter).
+- **Trezu.** A Trezu treasury is a Sputnik DAO, so it can be an event's arbiter unchanged (untested in Trezu's mainnet-only app). Sending a share of each forfeit pool to the community's Trezu treasury is planned ([ARCHITECTURE.md section 16](docs/ARCHITECTURE.md#16-beyond-the-hackathon)).
 - **An attendance record per payout account.** Each settled event records every payout account's RSVPs, attended, vouched and forfeited, and `reliability(payout_to)` returns it, so every point traces to a settled event. Only events where attendance was measured count: not cancelled or voided ones. Using the record for smaller deposits is planned, not built.
 - **`ed25519_verify` host function.** The contract verifies ticket signatures itself, so attendees need no NEAR account.
 
 ## Limits
 
-- Testnet only. The deposits are test tokens. Mainnet and deposits from other chains through NEAR Intents are designed (the contract already accepts `intents:` payout addresses) but not deployed or tested live. The web app marks "pay from another chain" as planned.
+- Testnet only. The deposits are test tokens. Mainnet and deposits from other chains through NEAR Intents are designed but not deployed or tested live. The contract has an `intents:` payout path, switched on only when it is initialised with an Intents account, which the testnet contract isn't. The web app marks "pay from another chain" as planned.
 - Online presence is not attention: Bail proves someone was in the session at several separate moments, not that they listened. A friend can relay a code to someone absent. Short windows, a multi-code requirement and small deposits make that unattractive, not impossible.
 - Against a host who hides the codes from everyone but their own tickets, the defence is the arbiter, and the contract can't prove the arbiter is independent.
 - The contract is unaudited and has no admin, so a bug can't be patched in place. A fix ships as a new version.

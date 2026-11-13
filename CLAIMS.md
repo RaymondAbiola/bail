@@ -75,7 +75,7 @@ Commands run from the repository root. `cargo test -p bail --lib` runs the Rust 
 ## Not claimed
 
 - **No mainnet deployment.** Nothing here has handled real money.
-- **NEAR Intents is not live.** The contract accepts `intents:` payout addresses and has unit tests for that path (`intents_payouts_use_transfer_call`). Deposits from other chains are designed but not built or tested against the real service, which has no testnet. The web app marks it "planned".
+- **NEAR Intents is not live.** The contract has an `intents:` payout path, switched on only when it is initialised with an Intents account (the testnet contract isn't), with unit tests for it (`intents_payouts_use_transfer_call`). Deposits from other chains are designed but not built or tested against the real service, which has no testnet. The web app marks it "planned".
 - **Not audited.** The invariant tests are strong evidence for the properties above, not a substitute for a review.
 - **Presence is not attention.** A friend can relay a code to someone absent. The protocol makes it unattractive, not impossible.
 - **The arbiter's independence is not provable on chain.** The contract only checks that the arbiter is not the organizer.

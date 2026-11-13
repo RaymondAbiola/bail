@@ -2,7 +2,7 @@
 
 What is being built, in order. Each stage builds on the one before it. The design behind every item is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-![Bail roadmap in two rows. Build the contract: Foundation (done), Check-in (done), Recourse and settlement (done), Proof (done). Ship it: Testnet launch (done), Apps (in progress), Any chain, First real event.](images/roadmap.svg)
+![Bail roadmap in two rows. Build the contract: Foundation (done), Check-in (done), Recourse and settlement (done), Proof (done). Ship it: Testnet launch (done), Apps (done), Real events (done), Any chain (planned).](images/roadmap.svg)
 
 | Stage | What it delivers | Status |
 |---|---|---|
@@ -11,9 +11,9 @@ What is being built, in order. Each stage builds on the one before it. The desig
 | 3. Recourse and settlement | Fair outcomes, payouts and reliability records | Done |
 | 4. Proof | Tests that back every promise, including the Kickback comparison | Done |
 | 5. Testnet launch | A locked, verifiable contract on NEAR testnet | Done |
-| 6. Apps | SDK, relayer, host console and web app | In progress |
-| 7. Any chain | Deposits from any chain through NEAR Intents | Planned |
-| 8. First real event | A live event with published results | Planned |
+| 6. Apps | SDK, relayer, host console and web app | Done |
+| 7. Real events | A dry run, a live event and a DAO arbiter on testnet, with published results | Done |
+| 8. Any chain | Deposits from any chain through NEAR Intents | Planned |
 
 ## 1. Foundation (done)
 
@@ -37,7 +37,7 @@ What is being built, in order. Each stage builds on the one before it. The desig
 - [x] Tally that anyone can run, in pages, fixing the pool, bonus and fee before any money moves
 - [x] Reliability records for every payout address
 - [x] Payouts pushed in pages or claimed per ticket; a failed transfer is rolled back so it can be paid again
-- [x] Payouts into NEAR Intents balances, built for mainnet (checked live in stage 7)
+- [x] Payouts into NEAR Intents balances, built for mainnet (checked live in stage 8)
 - [x] Closing an event frees its storage and refunds the organizer what is provably unused
 
 ## 4. Proof (done)
@@ -54,22 +54,26 @@ What is being built, in order. Each stage builds on the one before it. The desig
 - [x] Contract deployed to [`v1.dontbail.testnet`](https://testnet.nearblocks.io/address/v1.dontbail.testnet) and locked, with no access keys left
 - [x] Verify script checking that the onchain code hash matches the reproducible build; run `scripts/verify.py` to check it yourself
 
-## 6. Apps (in progress)
+## 6. Apps (done)
 
 - [x] TypeScript SDK, byte-identical to the contract, checked against test vectors the contract's own code builds
 - [x] Relayer and keeper, so attendees pay no NEAR gas and events settle themselves
 - [x] Testnet onboarding with a faucet and meta transactions, starting from a fresh browser with no NEAR
-- [x] Host console to create events, run live codes, reveal them and report results
-- [x] Web app: event page, RSVP, live check-in, results and organizer view
+- [x] Host console to create events, open each code when the host chooses, reveal them and report results
+- [x] Web app: event page, RSVP, live check-in, results and organizer view, with a check that a payout account exists before RSVP
+- [x] The site on GitHub Pages, reading results and public records straight from the chain
 
-## 7. Any chain
+## 7. Real events (done)
+
+- [x] Dry run with friends on phones, 11 Nov 2026 ([results](dry-run.md)), and the fixes it led to
+- [x] A live online event with real attendees on testnet, 12 Nov 2026 ([results](first-event.md))
+- [x] A Sputnik DAO as an event's arbiter, voting to void it and refunding everyone, on testnet and in a sandbox test ([record](dao-arbiter-event.md))
+- [x] `scripts/check-events.py`, which recomputes every published result from raw chain data
+- [x] README with step-by-step trial instructions, and CLAIMS.md linking every claim to its proof
+
+## 8. Any chain (planned)
 
 - [ ] Deposits from any chain and asset through 1Click, with the RSVP note delivered onchain
-- [ ] Live quotes on testnet, and a real cross-chain RSVP and Intents payout on mainnet
+- [ ] A real cross-chain RSVP and an Intents payout on mainnet, since NEAR Intents has no testnet
 
-## 8. First real event
-
-- [ ] Dry run with a small group
-- [ ] A live online event with real attendees on testnet
-- [ ] Published results: RSVPs, show-up rate, payouts and transaction links
-- [x] README with step-by-step trial instructions, and CLAIMS.md linking every claim to its proof
+After these: creating and hosting events from the browser with a NEAR wallet (today the organizer uses the `bail-host` console), and the ideas in [ARCHITECTURE.md section 16](ARCHITECTURE.md#16-beyond-the-hackathon): door mode for in-person events, smaller deposits for reliable people, and a share of forfeits to the community's Trezu treasury.

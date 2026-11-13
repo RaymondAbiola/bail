@@ -2,9 +2,9 @@
 
 > Post bail. Don't bail.
 
-Bail lets people RSVP to an event with a small deposit. Everyone who shows up gets their deposit back plus an equal share of the deposits forfeited by people who didn't. It runs on NEAR. On mainnet the deposit can come from any chain through NEAR Intents.
+Bail lets people RSVP to an event with a small deposit. Everyone who shows up gets their deposit back plus an equal share of the deposits forfeited by people who didn't. It runs on NEAR. On mainnet the deposit is designed to come from any chain through NEAR Intents; that part is not built yet.
 
-This is the design for the whole MVP. Event creation and deposit RSVPs are built; the rest is built in the order shown in [ROADMAP.md](ROADMAP.md).
+This is the design for the whole MVP. Everything here is built and running on NEAR testnet except deposits and payouts through NEAR Intents, which are mainnet-only ([ROADMAP.md](ROADMAP.md), stage 8).
 
 ## Contents
 
@@ -76,18 +76,18 @@ The contract holds all funds and all rules. Every off-chain part is replaceable:
 |---|---|---|---|
 | Attendee | A ticket key (ed25519) generated in the browser for this event | RSVP, cancel before the cutoff, catch codes, flag a slot where no code was shown, vouch for others | Change where their money is paid once the RSVP is made |
 | Organizer | Their NEAR account | Create an event, cancel it before check-in opens, open code slots | Mark anyone present or absent, end the event early, receive forfeits |
-| Host console | A function-call key on the organizer's account, limited to `open_slot` on the Bail contract | Open slots | Move NEAR, move tokens, call any other method |
+| Host console | A function-call key on the organizer's account, limited to `open_slot` and `reveal` on the Bail contract | Open slots and reveal codes | Move NEAR, move tokens, call any other method |
 | Relayer | A function-call key limited to Bail's attendee methods and keeper methods | Submit actions attendees signed; run tally and payouts | Forge a signature, choose payouts, move funds |
-| Arbiter | An account named at creation that can't be the organizer, such as a Sputnik DAO | Void the event during the dispute window, which refunds everyone | Send money anywhere except back to depositors |
+| Arbiter | An account named at creation that can't be the organizer, such as a Sputnik DAO | Void the event at any time until the dispute window ends, which refunds everyone | Send money anywhere except back to depositors |
 | Anyone | Nothing | Reveal a code they know, tally, pay out | Anything that needs a signature |
 
 Function-call keys are a NEAR protocol feature: the network itself refuses any transaction from that key except calls to the named contract and methods, with no tokens attached. A leaked host or relayer key cannot steal anything. The sandbox test `the_host_key_can_only_open_slots` shows this on a real NEAR node: the network refuses the host key's calls to `cancel_event` and `tally` and its attempt to send NEAR. The protocol checks a key's allowance against the most its attached gas could cost, which for 300 Tgas came to just over 1 NEAR in the sandbox, so the host console attaches 30 Tgas to each `open_slot` call.
 
 ## 5. Event lifecycle
 
-![Event lifecycle. Open, then CheckIn, Reveal, Dispute, Tally, Settled and Closed. An organizer can cancel before check-in and an arbiter can void during the dispute window; both refund everyone.](images/lifecycle.svg)
+![Event lifecycle. Open, then CheckIn, Reveal, Dispute, Tally, Settled and Closed. An organizer can cancel before check-in and an arbiter can void until the dispute window ends; both refund everyone.](images/lifecycle.svg)
 
-The main path runs left to right. The two side exits, an organizer cancelling before check-in and an arbiter voiding during the dispute window, both end with everyone refunded. What happens inside each phase is in the table below.
+The main path runs left to right. The two side exits, an organizer cancelling before check-in and an arbiter voiding at any time until the dispute window ends, both end with everyone refunded. What happens inside each phase is in the table below.
 
 Phase boundaries are timestamps fixed at creation and never editable. The contract derives the phase from the block time, so no transaction is needed to move between phases.
 
@@ -134,6 +134,7 @@ pub struct Ticket {
     payout_to: String,         // fixed at RSVP
     index: u32,                // position in the event's ticket index
     catches: [Option<Catch>; MAX_SLOTS], // proof and attempt number, per slot
+    flags: u8,                 // one bit per slot this ticket flagged as showing no code
     vouched_for: Option<PublicKey>, // the one ticket this attendee vouched for
     vouched_by: u8,
     outcome: Option<Outcome>,  // Attended, Vouched, Forfeited, Refunded
@@ -153,7 +154,7 @@ pub struct Ticket {
 | `open_slot(event, slot, commitment)` | organizer account (host key) | CheckIn | Starts a code window and stores the code's commitment. Each slot opens once, only after the previous slot's window has closed, and only if its own window ends before check-in closes. |
 | `catch(event, slot, attempt, ticket, proof, sig)` | anyone, ticket-signed | slot window | Stores the proof. A ticket can resubmit inside the window to fix a typo; each attempt number must be higher than the last, so an old signature can't be replayed. |
 | `flag_slot(event, slot, ticket, sig)` | anyone, ticket-signed | slot window to reveal deadline | Records that this ticket saw no code for the slot. Evidence for the arbiter; it moves no money. |
-| `reveal(event, slot, code)` | anyone | Reveal | Checks the code against the slot's commitment and marks the slot revealed. |
+| `reveal(event, slot, code)` | anyone | from the slot's window closing until the reveal deadline | Checks the code against the slot's commitment and marks the slot revealed. |
 | `vouch(event, voucher, target, sig)` | anyone, voucher-signed | Dispute, from the reveal deadline | An attendee with final, verified attendance vouches once, never for themselves or for someone who already attended. Two vouches make the target Vouched. |
 | `void_event(event)` | arbiter, with 1 yoctoNEAR, which a Sputnik DAO proposal can attach | before `dispute_ends_at` | Status becomes Voided. Deposits arriving afterwards are owed, and every ticket is refunded in the payout pages. |
 | `tally(event, limit)` | anyone | after the dispute window, or at once if cancelled or voided | Classifies up to `limit` tickets per call. Once all are classified it fixes the pool, fee, bonus and dust, then records reliability in further pages. |
@@ -192,12 +193,12 @@ An underpaid delivery through 1Click bounces to the account that delivered it. E
 Proving presence at an online event without trusting the host is the hard problem. Bail's answer has five parts.
 
 1. **Codes.** For each slot the host console generates a code of five words from the 2,048-word BIP-39 list, about 55 bits of randomness. Five words are easy to read aloud on a call, and the web app autocompletes them from the same list.
-2. **Commitment.** When the host opens slot `i`, the console posts `commitment_i` (6.10) and shows the code in the session. The window lasts `window_ms` (default 120 seconds, minimum 60) from the block that opened it. A slot can only open after the previous slot's window has closed, so three codes really are three separate moments, and every window must end before check-in closes.
+2. **Commitment.** When the host opens slot `i`, the console posts `commitment_i` (6.10) and shows the code in the session. The window lasts `window_ms` from the block that opened it: five minutes by default in the host console, and at least 60 seconds by contract rule. A slot can only open after the previous slot's window has closed, so three codes really are three separate moments, and every window must end before check-in closes.
 3. **Proof.** An attendee who hears the code submits a proof that hashes the code together with their own ticket key, signed by that key. The proof only works for that key, so nobody can copy it. An attendee who mistypes can resubmit inside the window. Each attempt carries a higher attempt number, so nobody can replay an older, wrong attempt over a newer one.
 4. **Reveal.** After the window closes, anyone who caught the code can reveal it: the host or any attendee. The contract checks it against the commitment, and every stored proof can then be checked. Reveals are rejected until the window has closed, so a revealed code never helps a latecomer. A host who goes silent can't stop attendees from revealing the codes they caught.
 5. **Flags.** From the moment a slot opens until the reveal deadline, an attendee can flag that no code was shown. Flags move no money. They are public evidence for the arbiter (6.6).
 
-There is deliberately no secret salt in the commitment. While a window is open, the commitment and everyone's proofs are public, so someone could try to recover the code by hashing guesses. With 55 bits that is 2^55 hashes. At about 22 billion SHA-256 hashes per second, a high-end GPU's rate, that is roughly 19 days of work, or about 14,000 GPUs to finish inside a two-minute window: far beyond what a deposit is worth. Every hash is tied to one contract, event and slot, so nothing can be computed in advance. A salt would add nothing here, and because attendees never see it, it would stop them from revealing the codes they caught.
+There is deliberately no secret salt in the commitment. While a window is open, the commitment and everyone's proofs are public, so someone could try to recover the code by hashing guesses. With 55 bits that is 2^55 hashes. At about 22 billion SHA-256 hashes per second, a high-end GPU's rate, that is roughly 19 days of work, or about 5,500 GPUs to finish inside a five-minute window: far beyond what a deposit is worth. Every hash is tied to one contract, event and slot, so nothing can be computed in advance. A salt would add nothing here, and because attendees never see it, it would stop them from revealing the codes they caught.
 
 ### 6.5 Qualification
 
@@ -220,7 +221,7 @@ A slot that never opened becomes void when check-in closes, and one that opened 
 | `vouch` | two qualified attendees | dispute window | The target gets their deposit back, with no bonus | One vouch per voucher. A vouched ticket only recovers its own money, so collusion can at most shrink the bonus pool. |
 | `void_event` | the arbiter named at creation | until `dispute_ends_at` | Everyone refunded | Refund only. An arbiter can grief but never steal. |
 
-Every event names an arbiter at creation, and it can't be the organizer. The arbiter covers the one attack the code mechanism can't prevent: a host who never shows the codes to the public and gives them only to their own tickets. A stolen host key allows the same attack. Everyone in the call sees that no code appeared and can flag the slot onchain. The arbiter (for example the community's Sputnik DAO, through a FunctionCall proposal) voids the event and everyone is refunded. The arbiter is shown on the event page before anyone deposits. The contract can check that it isn't the organizer's own account, but only attendees can judge whether it is truly independent.
+Every event names an arbiter at creation, and it can't be the organizer. The arbiter covers the one attack the code mechanism can't prevent: a host who never shows the codes to the public and gives them only to their own tickets. A stolen host key allows the same attack. Everyone in the call sees that no code appeared and can flag the slot onchain. The arbiter (for example the community's Sputnik DAO, through a FunctionCall proposal) voids the event and everyone is refunded. A Sputnik DAO did exactly this for event 6 on testnet ([record](dao-arbiter-event.md)), and the sandbox test `a_sputnik_dao_votes_to_void_an_event` runs it with the DAO code testnet's factory deploys. The arbiter is shown on the event page before anyone deposits. The contract can check that it isn't the organizer's own account, but only attendees can judge whether it is truly independent.
 
 ### 6.7 Settlement
 
@@ -266,7 +267,7 @@ Payout addresses:
 
 ### 6.9 Reputation
 
-Tally records each ticket's outcome against its payout address: RSVPs, attended, vouched, forfeited. It only does so when attendance was actually measured: not for cancelled or voided events, not when nobody attended, and not when so few codes were revealed that nobody needed a catch. Otherwise a host who skipped check-in would hand everyone a perfect record. `reliability(payout_to)` returns the record, and the web app shows it as a badge. It is a signal, not a guarantee: one person can hold several addresses. Later it powers smaller deposits for reliable people and bonus weighting (section 16).
+Tally records each ticket's outcome against its payout address: RSVPs, attended, vouched, forfeited. It only does so when attendance was actually measured: not for cancelled or voided events, not when nobody attended, and not when so few codes were revealed that nobody needed a catch. Otherwise a host who skipped check-in would hand everyone a perfect record. `reliability(payout_to)` returns the record; the web app doesn't show it yet. It is a signal, not a guarantee: one person can hold several addresses. Later it powers smaller deposits for reliable people and bonus weighting (section 16).
 
 ### 6.10 Signed messages
 
@@ -328,9 +329,11 @@ A static site (Vite, React, TypeScript, plain CSS, and the browser-safe SDK). It
 - **Live check-in:** when a code opens, it takes over the screen with a countdown and one input for the five words, word-list suggestions that never take focus from the input, "sent" distinguished from "confirmed after the host reveals the code" (decided by the contract's own proof check), corrections with rising attempt numbers, and a "the host did not show a code" flag that is labelled as evidence for the arbiter.
 - **Dispute and results:** the viewer's standing, vouching, then outcome, payout and whether it was actually paid. Results are kept in the browser, because closing an event frees the onchain ticket record.
 - **Organizer view:** public and read only: headcount and per-code activity, labelled with when it was read.
+- **Finished events:** a visitor with no ticket sees the result instead of RSVP steps, and the landing page shows the real events and the DAO arbiter demo, all read from the chain.
+- **Payout address check:** before RSVP, the app confirms a typed NEAR account exists and suggests the `.testnet` name when it doesn't.
 - **Other chain:** a marked placeholder, "Planned for mainnet". Nothing there works yet.
 
-The ticket key lives in the browser's local storage per event, falling back to memory (with a warning) if storage is blocked. The end-to-end test, `apps/web/e2e/run.ts`, builds the site and drives it in headless Chrome at phone size against a private NEAR node running the compiled contract, the relayer and the keeper, through a whole event. Setup and commands are in [apps/web/README.md](../apps/web/README.md).
+The ticket key lives in the browser's local storage per event, falling back to memory (with a warning) if storage is blocked. The end-to-end test, `apps/web/e2e/run.ts`, builds the site and drives it in headless Chrome at phone size against a private NEAR node running the compiled contract, the relayer and the keeper, through a whole event. Setup and commands are in [apps/web/README.md](../apps/web/README.md). The site is published to GitHub Pages by `.github/workflows/pages.yml` at [raymondabiola.github.io/bail](https://raymondabiola.github.io/bail/).
 
 ## 8. Flows
 
@@ -367,14 +370,14 @@ If the swap fails, 1Click refunds the attendee's own Solana address automaticall
 | Sock-puppet tickets that genuinely catch codes | anyone | Each costs a full deposit, and they can only share the pool funded by real no-shows. An honest attendee's deposit is never at risk. | They dilute the bonus. Reputation weighting is the long-term answer (section 16). |
 | Faucet drained (testnet) | anyone | One deposit per account and event, five requests per IP an hour, deposits up to 5 USDC, and only for events taking RSVPs. The sponsor is its own account, kept small, so the relayer's keys and the contract are never at stake. | Someone with many IPs can drain test tokens; refilling costs nothing. |
 | Seat squatting | anyone | Each seat locks a full deposit until the event ends. | Someone with enough capital can fill an event. Organizer approval and reputation are the long-term answer. |
-| Relaying the code to an absent friend | attendees | Short windows, separate moments, a 2-of-3 requirement and small deposits make it not worth the effort. | Can't be fully prevented online. In-person door mode (section 16) is stronger. |
+| Relaying the code to an absent friend | attendees | Short windows, separate moments the host chooses, every code required by default, and small deposits make it not worth the effort. | Can't be fully prevented online. In-person door mode (section 16) is stronger. |
 | Copying someone's proof | anyone | Proofs are bound to the ticket key. | None |
 | Replaying an old, wrong catch over a corrected one | anyone | Attempt numbers must increase. | None |
 | A typo in a code | attendee | Resubmission inside the window, and word-list autocomplete. | A typo noticed after the window closes can't be fixed. |
-| Brute-forcing a code during its window | anyone | 55-bit codes, separate two-minute windows, hashes tied to one contract, event and slot. | Negligible at these stakes. |
+| Brute-forcing a code during its window | anyone | 55-bit codes, separate five-minute windows, hashes tied to one contract, event and slot. | Negligible at these stakes. |
 | Early reveal helping latecomers | anyone | Reveals are rejected until the window has closed. | None |
 | Host goes silent after the event | host | Anyone who caught a code can reveal it. Unrevealed slots only lower the bar. | None |
-| Host key stolen | attacker | The key can only call `open_slot`, with no tokens attached, so it can't move funds. | The thief can act like a dishonest host. Same defence: flags and the arbiter. |
+| Host key stolen | attacker | The key can only call `open_slot` and `reveal`, with no tokens attached, so it can't move funds. | The thief can act like a dishonest host. Same defence: flags and the arbiter. |
 | Relayer key stolen | attacker | The key can only call Bail methods that need a ticket signature or are permissionless anyway. | None |
 | Relayer censors an attendee | relayer | Anyone can submit a signed action: other relayers or the attendee directly. | Delay during a short window. |
 | Ticket key stolen | attacker | The payout address is fixed at RSVP, so the thief can only catch codes for someone else's benefit, or cancel and refund the owner. | The owner loses their seat if the thief cancels. |
@@ -438,18 +441,18 @@ The contract's `Cargo.toml` pins its reproducible build to a Docker image by dig
 | NEAR Intents and 1Click | Mainnet deposits from any chain and asset, delivered with the RSVP note. Payouts into Intents balances that withdraw anywhere. |
 | `ed25519_verify` host function | The contract checks ticket signatures itself, so attendees need no NEAR account at all. |
 | Named accounts and sub-accounts | The contract lives at `v1.dontbail.testnet`. Each version is a locked sub-account, so a fix ships as `v2` without anyone holding an upgrade key. |
-| Sputnik DAO | A community DAO can be an event's arbiter with no extra code: a FunctionCall proposal to `void_event`. |
-| Cheap storage | A 30-seat event prepays about 0.3 NEAR of storage (around $1.30 today), most of it returned when the event closes. |
+| Sputnik DAO | A community DAO can be an event's arbiter with no extra code: a FunctionCall proposal to `void_event`. Done on testnet for event 6. |
+| Cheap storage | A 30-seat event prepays about 0.3 NEAR of storage, most of it returned when the event closes. |
 
 ## 13. Networks
 
-| | Testnet (MVP) | Mainnet |
+| | Testnet (MVP, live) | Mainnet (planned) |
 |---|---|---|
 | Contract | `v1.dontbail.testnet`, locked. A bug fix means deploying `v2`; the parent account stays with the owner. | `v1.dontbail.near`, locked |
 | Token | Circle test USDC `3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af` | Native USDC `17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1` |
 | Deposits | Faucet plus meta transaction from a browser-generated account | 1Click from any chain, or a NEAR wallet directly |
 | Payouts | `near:` accounts | `near:` accounts and `intents:` balances |
-| 1Click | Dry quotes only (NEAR Intents has no testnet) | Live |
+| 1Click | None: NEAR Intents has no testnet | Live |
 | Durations | Short minimums for demos | Hours |
 
 `scripts/deploy.sh` builds the contract reproducibly, deploys and initialises it in one transaction on a fresh sub-account, registers it with test USDC, checks the onchain code hash, and only then deletes the account's one key. Bail has no method that deploys code or adds keys, so after that nobody, including its author, can change it. A token other than test USDC needs the contract registered with it first, which anyone can do with `storage_deposit`.
@@ -470,6 +473,7 @@ bail/
     src/tests.rs           unit tests; src/tests/proptests.rs, the random-history property test;
                            src/tests/vectors.rs, which builds the SDK's test vectors
     tests/sandbox.rs       sandbox integration tests on the compiled wasm
+    tests/sputnik/         Sputnik DAO code copied from testnet, for the DAO arbiter test
   contracts/test-token/    a standard NEP-141 token for the sandbox tests
   tests/kickback/          Foundry project: Kickback's own contract (MIT, unchanged) and the attack test
   packages/sdk/            TypeScript SDK and shared test vectors
@@ -477,12 +481,13 @@ bail/
   apps/host/               host console
   packages/testkit/        a local NEAR node with Bail and a test token, for integration tests
   apps/web/                web app
-  scripts/                 deploy.sh, verify.py, render-diagrams.sh
+  scripts/                 deploy.sh, verify.py, check-events.py, render-diagrams.sh
   deployments/             testnet.json: the deployed contract, its source commit and transactions
-  docs/                    ARCHITECTURE.md, ROADMAP.md
+  docs/                    ARCHITECTURE.md, ROADMAP.md, and the testnet records: testnet-rehearsal.md,
+                           dry-run.md, first-event.md, dao-arbiter-event.md
     diagrams/              Mermaid sources for the four flow diagrams
     images/                rendered SVG diagrams
-  .github/workflows/       continuous integration
+  .github/workflows/       continuous integration, and the site's GitHub Pages build
   README.md  CLAIMS.md  LICENSE
 ```
 
