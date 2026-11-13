@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 
-import { BailView, type Event, type FunctionCallDelegate, Ticket, type TicketRecord, rsvpDelegate } from "@bail/sdk";
+import { BailView, type Event, type FunctionCallDelegate, Ticket, type TicketRecord, codeCommitment, rsvpDelegate, toBase64 } from "@bail/sdk";
 
 import type { CallOutcome, Chain } from "../src/chain.ts";
 import { failureMessage } from "../src/chain.ts";
@@ -37,6 +37,11 @@ class FakeView extends BailView {
 
   override async event(eventId: number): Promise<Event | null> {
     return this.events.get(eventId) ?? null;
+  }
+
+  nowMs = 0;
+  override async now(): Promise<number> {
+    return this.nowMs;
   }
 }
 
@@ -152,6 +157,35 @@ test("the relayer answers clearly when it can't help", async () => {
     const preflight = await fetch(`${base}/v1/catch`, { method: "OPTIONS" });
     assert.equal(preflight.status, 204);
     assert.equal(preflight.headers.get("access-control-allow-origin"), "*");
+  } finally {
+    server.close();
+  }
+});
+
+test("a code is revealed only if it matches its commitment, after its window", async () => {
+  const { chain, view, server, post } = await serve();
+  try {
+    const code = "tiger maple seven ocean lamp";
+    view.events.set(9, event({
+      slots: [{ opened_at_ms: 10_000, commitment: toBase64(codeCommitment(CONTRACT, 9, 0, code)), flags: 0, revealed: null }],
+      schedule: { cancel_cutoff_ms: 1, rsvp_closes_at_ms: 2, checkin_opens_at_ms: 2, checkin_closes_at_ms: 500_000, reveal_deadline_ms: 900_000, dispute_ends_at_ms: 1_000_000 },
+    }));
+    view.nowMs = 30_000;
+    assert.equal((await post("/v1/reveal", { event_id: 9, slot: 0, code })).status, 422, "the window is still open");
+    view.nowMs = 70_000;
+    assert.equal((await post("/v1/reveal", { event_id: 9, slot: 0, code: "tiger maple seven ocean lime" })).status, 400);
+    assert.equal((await post("/v1/reveal", { event_id: 9, slot: 1, code })).status, 422, "not opened");
+    assert.equal((await post("/v1/reveal", { event_id: 8, slot: 0, code })).status, 404);
+    assert.equal((await post("/v1/reveal", { event_id: 9, slot: 0, code: "" })).status, 400);
+    assert.equal(chain.calls.length, 0, "nothing was sent for a wrong request");
+    const ok = await post("/v1/reveal", { event_id: 9, slot: 0, code: " Tiger maple  seven ocean lamp" });
+    assert.deepEqual(ok, { status: 200, body: { tx: "tx1" } });
+    assert.deepEqual(chain.calls, [{ method: "reveal", args: { event_id: 9, slot: 0, code } }]);
+    view.events.get(9)!.slots[0]!.revealed = code;
+    assert.equal((await post("/v1/reveal", { event_id: 9, slot: 0, code })).status, 409);
+    view.events.get(9)!.slots[0]!.revealed = null;
+    view.nowMs = 900_000;
+    assert.equal((await post("/v1/reveal", { event_id: 9, slot: 0, code })).status, 422, "past the deadline");
   } finally {
     server.close();
   }

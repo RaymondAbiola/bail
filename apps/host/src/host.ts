@@ -1,4 +1,4 @@
-import { type BailView, type Event, type TicketRecord, codeCommitment, generateCode, phase, toBase64 } from "@bail/sdk";
+import { type BailView, type Event, HOST_TGAS, type TicketRecord, codeCommitment, generateCode, phase, toBase64 } from "@bail/sdk";
 import { ResilientProvider } from "@bail/sdk/provider";
 import { Account, KeyPair, KeyPairSigner, actions, nearToYocto, teraToGas } from "near-api-js";
 import type { KeyPairString } from "near-api-js";
@@ -11,7 +11,6 @@ import { type EventState, loadState, saveState } from "./state.ts";
 import { EnterKey, TerminalScreen } from "./terminal.ts";
 
 /** open_slot and reveal are cheap; never attach the maximum, which a function-call key pays for up front. */
-const HOST_TGAS = 30;
 export const HOST_METHODS = ["open_slot", "reveal"];
 
 export interface Host {

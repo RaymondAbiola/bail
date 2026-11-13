@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
-import type { BailView } from "@bail/sdk";
+import { type BailView, codeCommitment, fromBase64, revealArgs } from "@bail/sdk";
 
 import type { Chain } from "./chain.ts";
 import { BadRequest, checkAction, type Checked } from "./checks.ts";
@@ -120,6 +120,41 @@ export function relayerServer(options: ServerOptions): Server {
     return { status: 200, body: { tx: outcome.tx } };
   }
 
+  // Reveals are permissionless, so the host's browser can hand a code here instead of asking
+  // its wallet again. The code must match the slot's commitment before any gas is spent.
+  async function reveal(body: unknown): Promise<{ status: number; body: object }> {
+    const { view, chain, contractId } = options;
+    const b = (body ?? {}) as Record<string, unknown>;
+    const eventId = b.event_id;
+    const slot = b.slot;
+    if (typeof eventId !== "number" || !Number.isSafeInteger(eventId) || eventId < 0) throw new BadRequest("event_id must be a whole number");
+    if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0 || slot > 255) throw new BadRequest("slot must be 0 to 255");
+    if (typeof b.code !== "string") throw new BadRequest("code must be text");
+    let args: ReturnType<typeof revealArgs>;
+    try {
+      args = revealArgs(eventId, slot, b.code);
+    } catch {
+      throw new BadRequest("a code is 1 to 64 bytes of words");
+    }
+    const event = await view.event(eventId);
+    if (!event) throw new HttpError(404, "no such event");
+    const opened = event.slots[slot];
+    if (!opened) throw new HttpError(422, "that code has not been opened");
+    if (opened.revealed !== null) throw new HttpError(409, "that code is already revealed");
+    const committed = fromBase64(opened.commitment);
+    const offered = codeCommitment(contractId, eventId, slot, args.code);
+    if (committed.length !== offered.length || committed.some((byte, i) => byte !== offered[i])) {
+      throw new BadRequest("that is not the code committed for this slot");
+    }
+    const now = await view.now();
+    if (now < opened.opened_at_ms + event.checkin.window_ms) throw new HttpError(422, "the code's window is still open");
+    if (now >= event.schedule.reveal_deadline_ms) throw new HttpError(422, "the reveal deadline has passed");
+    const outcome = await chain.call("reveal", args, ACTION_TGAS);
+    log(`reveal event=${eventId} slot=${slot} ok=${outcome.ok} tx=${outcome.tx}`);
+    if (!outcome.ok) return { status: 422, body: { error: outcome.error, tx: outcome.tx } };
+    return { status: 200, body: { tx: outcome.tx } };
+  }
+
   async function handle(req: IncomingMessage): Promise<{ status: number; body: object }> {
     const url = new URL(req.url ?? "/", "http://relayer");
     if (req.method === "GET" && url.pathname === "/v1/health") {
@@ -134,6 +169,7 @@ export function relayerServer(options: ServerOptions): Server {
     if (!perIp.allow(ip)) throw new HttpError(429, "too many requests from this address");
     if (route[1] === "faucet") return faucet(await readJson(req), ip);
     if (route[1] === "meta") return meta(await readJson(req));
+    if (route[1] === "reveal") return reveal(await readJson(req));
     const checked = checkAction(route[1]!, await readJson(req), options.contractId);
     if (!perTicket.allow(checked.signer)) throw new HttpError(429, "too many requests for this ticket");
     return submit(checked);

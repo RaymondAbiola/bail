@@ -17,6 +17,25 @@ export {
   rsvpDelegate,
 } from "./delegate.ts";
 export { catchProof, codeCommitment } from "./hashes.ts";
+export {
+  CREATE_EVENT_TGAS,
+  type EventPlan,
+  HOST_TGAS,
+  LATENCY_MS,
+  MARGIN_MS,
+  MINUTE,
+  type NextCode,
+  buildEvent,
+  createdEventId,
+  lastChance,
+  minCheckinMinutes,
+  nextCode,
+  openSlotArgs,
+  parseAmount,
+  revealArgs,
+  revealableSlots,
+  slotRange,
+} from "./hosting.ts";
 export { cancelMessage, catchMessage, flagMessage, vouchMessage } from "./messages.ts";
 export { MAX_PAYOUT_LEN, isAccountId, isPayoutAddress, rsvpNote } from "./notes.ts";
 export { RelayerClient } from "./relayer.ts";

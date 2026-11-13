@@ -1,30 +1,16 @@
-import type { NewEvent } from "@bail/sdk";
+import { MINUTE } from "@bail/sdk";
 
-export const MINUTE = 60_000;
-/** Slack around every code window, because block times are not exact. */
-export const MARGIN_MS = 15_000;
-/**
- * Room kept for each code still to come, for the open and reveal transactions and a throttled
- * RPC. Without it a late random draw can leave the last code no time, as it did in the dry run.
- */
-export const LATENCY_MS = 45_000;
-
-export interface EventPlan {
-  token: string;
-  /** In the token's smallest unit. */
-  deposit: bigint;
-  capacity: number;
-  arbiter: string;
-  checkinOpensAt: number;
-  checkinMinutes: number;
-  slots: number;
-  required: number;
-  windowMinutes: number;
-  revealMinutes: number;
-  disputeMinutes: number;
-  /** Free cancellation ends this long before check-in opens. */
-  cancelBeforeMinutes: number;
-}
+// The timing rules live in the SDK, shared with the web app's host page.
+export {
+  type EventPlan,
+  LATENCY_MS,
+  MARGIN_MS,
+  MINUTE,
+  buildEvent,
+  lastChance,
+  parseAmount,
+  slotRange,
+} from "@bail/sdk";
 
 /** "+15m", "+2h" or an ISO date, as milliseconds since the epoch. */
 export function parseWhen(value: string, nowMs: number): number {
@@ -33,62 +19,6 @@ export function parseWhen(value: string, nowMs: number): number {
   const at = Date.parse(value);
   if (Number.isNaN(at)) throw new Error(`can't read the time ${value}; use +15m, +2h or an ISO date`);
   return at;
-}
-
-/** Whole and fractional token amounts, such as "1" or "0.5", in the smallest unit. */
-export function parseAmount(value: string, decimals: number): bigint {
-  const match = value.match(/^(\d+)(?:\.(\d+))?$/);
-  if (!match || (match[2]?.length ?? 0) > decimals) throw new Error(`can't read the amount ${value}`);
-  return BigInt(match[1]!) * 10n ** BigInt(decimals) + BigInt((match[2] ?? "").padEnd(decimals, "0") || "0");
-}
-
-/** The `create_event` argument for a plan, refusing schedules the live console couldn't run. */
-export function buildEvent(plan: EventPlan, nowMs: number): NewEvent {
-  const window = plan.windowMinutes * MINUTE;
-  const checkin = plan.checkinMinutes * MINUTE;
-  const needed = plan.slots * (window + MARGIN_MS + LATENCY_MS) + MARGIN_MS;
-  if (checkin < needed) {
-    throw new Error(`check-in must be at least ${Math.ceil(needed / MINUTE)} minutes for ${plan.slots} codes of ${plan.windowMinutes} minutes`);
-  }
-  if (plan.checkinOpensAt <= nowMs) throw new Error("check-in must open in the future");
-  const cutoff = Math.max(nowMs + MINUTE, plan.checkinOpensAt - plan.cancelBeforeMinutes * MINUTE);
-  return {
-    token: plan.token,
-    deposit: String(plan.deposit),
-    capacity: plan.capacity,
-    arbiter: plan.arbiter,
-    cancel_cutoff_ms: Math.min(cutoff, plan.checkinOpensAt),
-    rsvp_closes_at_ms: plan.checkinOpensAt,
-    checkin_opens_at_ms: plan.checkinOpensAt,
-    checkin_closes_at_ms: plan.checkinOpensAt + checkin,
-    reveal_ms: plan.revealMinutes * MINUTE,
-    dispute_ms: plan.disputeMinutes * MINUTE,
-    checkin: { slots: plan.slots, required: plan.required, window_ms: window },
-  };
-}
-
-/**
- * When slot `slot` may open: after the previous window has closed onchain, and early
- * enough that it and every later slot still fit before check-in closes. Null means there is
- * no longer room for it, so the code stays unopened and becomes void.
- */
-export function slotRange(
-  slot: number,
-  slots: number,
-  windowMs: number,
-  opensAt: number,
-  closesAt: number,
-  previousOpenedAt: number | null,
-): { earliest: number; latest: number } | null {
-  const earliest = previousOpenedAt === null ? opensAt + MARGIN_MS : previousOpenedAt + windowMs + MARGIN_MS;
-  if (earliest + windowMs + MARGIN_MS > closesAt) return null;
-  const latest = closesAt - (slots - slot) * (windowMs + MARGIN_MS + LATENCY_MS);
-  return { earliest, latest: Math.max(earliest, latest) };
-}
-
-/** The last moment any code can still be opened and have its whole window before check-in closes. */
-export function lastChance(windowMs: number, closesAt: number): number {
-  return closesAt - windowMs - MARGIN_MS - LATENCY_MS;
 }
 
 /** A moment in the range nobody can predict, so attendees can't just tune in for the codes. */

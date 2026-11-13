@@ -5,7 +5,7 @@ import type { Action, KeyPairString } from "near-api-js";
 
 /** Everything the relayer and keeper call. None of them takes attached NEAR. */
 export const RELAYER_METHODS = [
-  "catch", "flag_slot", "cancel_rsvp", "vouch", "tally", "payout", "claim", "claim_owed", "close_event",
+  "catch", "flag_slot", "cancel_rsvp", "vouch", "reveal", "tally", "payout", "claim", "claim_owed", "close_event",
 ];
 
 export interface CallOutcome {

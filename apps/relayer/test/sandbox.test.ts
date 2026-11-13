@@ -124,7 +124,12 @@ test("a fresh browser key RSVPs through the faucet, the event runs through the r
 
     const opened = (await view.event(id))!.slots[0]!.opened_at_ms;
     await sb.advanceTo(view, opened + MINUTE);
-    await sb.call(carol, bail.accountId, "reveal", { event_id: id, slot: 0, code: CODE });
+    // The host hands the code to the relayer, which checks it against the commitment and reveals it.
+    const wrong = await relay("reveal", { event_id: id, slot: 0, code: "not the code" });
+    assert.equal(wrong.status, 400, "a code that doesn't match its commitment costs no gas");
+    const revealed = await relay("reveal", { event_id: id, slot: 0, code: CODE });
+    assert.equal(revealed.status, 200, JSON.stringify(revealed.body));
+    assert.equal((await view.event(id))!.slots[0]!.revealed, CODE);
     await sb.advanceTo(view, (await view.event(id))!.schedule.dispute_ends_at_ms);
 
     // Nobody calls tally, payout or close: the keeper does it all.
