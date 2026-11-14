@@ -26,6 +26,11 @@ CONTRACT = "v1.dontbail.testnet"
 ORGANIZER = "dontbail.testnet"
 RPCS = ["https://rpc.testnet.fastnear.com", "https://archival-rpc.testnet.fastnear.com",
         "https://near-testnet.drpc.org"]
+ARCHIVAL = ["https://archival-rpc.testnet.fastnear.com"]
+# The keeper closes an event six hours after its payouts, which frees its ticket records. The
+# published events were all settled before this block and closed just after it, so their tickets
+# are read from here on an archival node. Totals, codes and owed records stay on the event.
+BEFORE_CLOSE_BLOCK = 277_581_350
 B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 VOUCHES_NEEDED = 2
 
@@ -58,13 +63,13 @@ def check(ok, message):
     return ok
 
 
-def rpc(method, params):
+def rpc(method, params, urls=RPCS):
     body = json.dumps({"jsonrpc": "2.0", "id": "check", "method": method, "params": params}).encode()
     last = None
     # Public endpoints throttle (429, and sometimes 403) when busy, so rotate through them and
     # back off for up to about two minutes before giving up.
     for attempt in range(12):
-        url = RPCS[attempt % len(RPCS)]
+        url = urls[attempt % len(urls)]
         try:
             request = urllib.request.Request(url, body, {"Content-Type": "application/json"})
             with urllib.request.urlopen(request, timeout=30) as response:
@@ -77,10 +82,11 @@ def rpc(method, params):
     raise SystemExit(f"Could not reach testnet RPC after several tries ({last}). Public endpoints throttle when busy; try again in a few minutes.")
 
 
-def view(contract, method, args=None):
+def view(contract, method, args=None, block=None):
     args64 = base64.b64encode(json.dumps(args or {}).encode()).decode()
-    reply = rpc("query", {"request_type": "call_function", "finality": "final", "account_id": contract,
-                          "method_name": method, "args_base64": args64})
+    at = {"block_id": block} if block else {"finality": "final"}
+    reply = rpc("query", {"request_type": "call_function", **at, "account_id": contract,
+                          "method_name": method, "args_base64": args64}, ARCHIVAL if block else RPCS)
     result = reply.get("result", {})
     if "error" in reply or "error" in result:
         raise SystemExit(f"{contract}.{method} failed: {reply.get('error') or result.get('error')}")
@@ -129,10 +135,10 @@ def catch_proof(event_id, slot, code, ticket_key):
                                  bytes([slot]), normalize(code).encode(), key)).digest()
 
 
-def all_tickets(event_id):
+def all_tickets(event_id, block=None):
     tickets = []
     while True:
-        page = view(CONTRACT, "get_tickets", {"event_id": event_id, "from": len(tickets), "limit": 50})
+        page = view(CONTRACT, "get_tickets", {"event_id": event_id, "from": len(tickets), "limit": 50}, block)
         tickets += page
         if len(page) < 50:
             return tickets
@@ -156,6 +162,13 @@ def check_event(event_id, config):
     want = PUBLISHED[event_id]
     print(f"\nEvent {event_id}: {want['name']}")
     event = view(CONTRACT, "get_event", {"event_id": event_id})
+    block = None
+    if event["closed"]:
+        block = BEFORE_CLOSE_BLOCK
+        settled = view(CONTRACT, "get_event", {"event_id": event_id}, block)
+        check(not settled["closed"] and settled["tally"] == event["tally"],
+              f"closed by the keeper, which freed its tickets; its totals today match block {block:,}, before it closed")
+        event = settled
     tally = event["tally"]
     deposit = int(event["deposit"])
     organizer = want.get("organizer", ORGANIZER)
@@ -180,7 +193,7 @@ def check_event(event_id, config):
           f"{void} void, so {needed} of {event['checkin']['required']} needed to attend")
 
     # 2. Recount attendance from the catch proofs, then 3. recompute outcomes and payouts.
-    tickets = all_tickets(event_id)
+    tickets = all_tickets(event_id, block)
     check(len(tickets) == event["registered"] == want["seats"], f"{len(tickets)} tickets, as published")
     refund_all = event["status"] in ("Cancelled", "Voided")
     counts = {"Attended": 0, "Vouched": 0, "Forfeited": 0, "Refunded": 0}
@@ -219,6 +232,9 @@ def check_event(event_id, config):
         exists = account(t["payout_to"].removeprefix("near:")) is not None
         check(not exists, f"#{t['index'] + 1}'s {usdc(amount)} wasn't sent because {t['payout_to']} doesn't exist "
               "(mistyped at RSVP); it stays held by the contract")
+        if block:
+            owed = int(view(CONTRACT, "get_owed", {"event_id": event_id, "payout_to": t["payout_to"]}) or 0)
+            check(owed == amount, f"closing the event moved it to an owed record for {t['payout_to']}: {usdc(owed)}")
     return event
 
 
